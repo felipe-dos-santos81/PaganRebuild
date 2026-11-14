@@ -85,15 +85,17 @@ fn steered(window: &Window) -> bool {
 const STICK_DEAD: f32 = 0.3;
 
 /// The pad's left stick: the Avatar walks the way it is pushed (on
-/// screen), and runs when it is pushed all the way (or, with the modern
-/// controls, when running is switched on).
+/// screen). With the modern controls he walks or runs as switched (shift,
+/// on the pad the stick pressed in: L3), as with the keys; pushed all the
+/// way he ran every time, and walking was not to be had. With the classic
+/// ones he runs when it is pushed all the way.
 fn stick_input(window: &Window, run: Option<bool>) -> Option<MoveInput> {
     let (sx, sy) = window.stick();
     let push = (sx * sx + sy * sy).sqrt();
     if push < STICK_DEAD {
         return None;
     }
-    Some(MoveInput { dir: screen_dir(sx, -sy), run: run.unwrap_or(false) || push > 0.9 })
+    Some(MoveInput { dir: screen_dir(sx, -sy), run: run.unwrap_or(push > 0.9) })
 }
 
 /// How long the button has to stay down on the ground before the Avatar
