@@ -54,7 +54,23 @@ pub(crate) struct Glide {
     due: std::time::Instant,
     /// When `at` was last brought up to date.
     last: std::time::Instant,
+    /// Setting out, the figure waits until then: the head start the actor
+    /// needs so that the figure, going evenly, never catches up with it
+    /// (the frames of the animation move it unevenly; see
+    /// `AnimAction::stride_slack`).
+    hold_until: std::time::Instant,
+    /// The closest the figure came to the actor of late: in the stretch of
+    /// time running (since `stretch`) and in the one before.
+    closest: f32,
+    closest_before: f32,
+    stretch: std::time::Instant,
 }
+
+/// The stretch of time the closest distance is taken over, in seconds:
+/// longer than a step of the animation.
+const STRETCH: f32 = 0.5;
+/// How close to the actor the figure may come, as a share of the lag.
+const MARGIN: f32 = 0.15;
 
 /// Distance between two points in world units.
 fn distance(a: (f32, f32, f32), b: (i32, i32, i32)) -> f32 {
@@ -65,7 +81,12 @@ fn distance(a: (f32, f32, f32), b: (i32, i32, i32)) -> f32 {
 impl Glide {
     /// Brings the drawn figure along its way up to `now`.
     fn advance(&mut self, now: std::time::Instant) {
-        let dt = now.saturating_duration_since(self.last).as_secs_f32();
+        // (not before the head start is over)
+        let from = self.last.max(self.hold_until);
+        if now <= from {
+            return;
+        }
+        let dt = (now - from).as_secs_f32();
         self.last = now;
         // (30 ticks are a second)
         let mut left = self.speed * 30.0 * dt * self.pace(now);
@@ -80,20 +101,32 @@ impl Glide {
             self.at = (next.0 as f32, next.1 as f32, next.2 as f32);
             self.way.pop_front();
         }
+        // how close it has come, for the pace from now on
+        let behind = self.behind();
+        self.closest = self.closest.min(behind);
+        if now.saturating_duration_since(self.stretch).as_secs_f32() > STRETCH {
+            (self.closest_before, self.closest, self.stretch) = (self.closest, behind, now);
+        }
     }
 
-    /// How much faster or slower than the even pace the figure goes now. It
-    /// keeps about one frame behind: a little faster when it fell further
-    /// back, a little slower when it came close. The correction is gentle;
-    /// a strong one would let the pace swing with the frames again. Far
-    /// behind (the game sped up with F4, or the picture held up) it
-    /// hurries. Once the actor has stopped (its next step did not come in
-    /// time) the figure closes up at once, within the time of a frame,
-    /// instead of slowing down on the last bit.
+    /// How much faster or slower than the even pace the figure goes now.
+    /// It stays just behind the actor: going by the closest it came in the
+    /// last half second, a touch faster when that was further than a small
+    /// margin, a touch slower when it was closer. Not by the distance of
+    /// the moment: that one jumps with every frame of the animation, and
+    /// following it the pace swung by a tenth and more - at one and a half
+    /// pixels a picture the figure then moved 1, 2, 2, 1, 3 pixels instead
+    /// of 1 and 2 by turns, which shows as judder. And not by the average
+    /// distance: with that one the figure caught up with the actor once a
+    /// step and stood for a picture. Far behind (the game sped up with F4,
+    /// or the picture held up) it hurries. Once the actor has stopped (its
+    /// next step did not come in time) the figure closes up at once,
+    /// within the time of a frame, instead of slowing down on the last bit.
     fn pace(&self, now: std::time::Instant) -> f32 {
         let behind = self.behind();
         let lag = self.lag.max(1.0);
-        let mut pace = 1.0 + 0.2 * (behind - lag) / lag;
+        // (gentle: the closest distance is known half a second late)
+        let mut pace = 1.0 + 0.05 * (self.closest.min(self.closest_before) - MARGIN * lag) / lag;
         if behind > 3.0 * lag {
             pace += (behind - 3.0 * lag) / lag;
         }
@@ -723,24 +756,38 @@ impl Game {
                         let seconds = mover.step_ticks() as f32 / 30.0;
                         let due = now + std::time::Duration::from_secs_f32(seconds);
                         let even = if self.options.even_walk { mover.walk_speed(it.shape, &mut self.data.anims) } else { None };
+                        // the head start for the actor: what the frames
+                        // can fall short of the even pace, and a margin
+                        let lag_of = |speed: f32| speed * mover.step_ticks() as f32;
+                        let hold = |speed: f32, slack: f32| now + std::time::Duration::from_secs_f32((slack + MARGIN * lag_of(speed)) / (speed * 30.0));
                         let lerp = match (even, was) {
                             // walking on: the next position joins the way
-                            (Some(speed), Some(Lerp::Glide(mut g))) => {
+                            (Some((speed, slack)), Some(Lerp::Glide(mut g))) => {
+                                // (it had caught up - he stood, turning: a
+                                // head start anew)
+                                if g.way.is_empty() {
+                                    g.hold_until = hold(speed, slack);
+                                }
                                 g.way.push_back(after);
                                 g.speed = speed;
-                                g.lag = speed * mover.step_ticks() as f32;
+                                g.lag = lag_of(speed);
                                 g.due = due;
                                 Lerp::Glide(g)
                             }
                             // setting out (or walking on from a jump): the
                             // way leads over the last position to the new one
-                            (Some(speed), _) => Lerp::Glide(Glide {
+                            (Some((speed, slack)), _) => Lerp::Glide(Glide {
                                 at: shown,
                                 way: [before, after].into_iter().collect(),
                                 speed,
-                                lag: speed * mover.step_ticks() as f32,
+                                lag: lag_of(speed),
                                 due,
                                 last: now,
+                                hold_until: hold(speed, slack),
+                                // (as if it had kept its margin so far: the even pace to begin with)
+                                closest: MARGIN * lag_of(speed),
+                                closest_before: MARGIN * lag_of(speed),
+                                stretch: now,
                             }),
                             // anything else: there until the next step is due
                             (None, _) => Lerp::Line { from: shown, to: after, start: now, seconds },
@@ -1877,7 +1924,19 @@ mod tests {
     /// sets it up for the first step.
     fn setting_out(t: Instant) -> Glide {
         let speed = WALK.iter().sum::<i32>() as f32 / (WALK.len() as f32 * 2.0);
-        Glide { at: (0.0, 0.0, 0.0), way: [(0, 0, 0), (WALK[0], 0, 0)].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t }
+        // the head start, as the game works it out (`AnimAction::stride_slack`)
+        let even = WALK.iter().sum::<i32>() as f32 / WALK.len() as f32;
+        let mut slack: f32 = 0.0;
+        for start in 0..WALK.len() {
+            let mut short = 0.0;
+            for k in 0..WALK.len() {
+                short += even - WALK[(start + k) % WALK.len()] as f32;
+                slack = slack.max(short);
+            }
+        }
+        let margin = super::MARGIN * speed * 2.0;
+        let hold_until = t + Duration::from_secs_f32((slack + margin) / (speed * 30.0));
+        Glide { at: (0.0, 0.0, 0.0), way: [(0, 0, 0), (WALK[0], 0, 0)].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t, hold_until, closest: margin, closest_before: margin, stretch: t }
     }
 
     /// Walks `frames` frames, drawing at 60 pictures a second; returns
@@ -1918,7 +1977,7 @@ mod tests {
         let steps: Vec<f32> = drawn[16..].windows(2).map(|w| w[1].0 - w[0].0).collect();
         let mean = steps.iter().sum::<f32>() / steps.len() as f32;
         for (i, s) in steps.iter().enumerate() {
-            assert!((s - mean).abs() < 0.3 * mean, "picture {}: moved {s}, on average {mean}", i + 16);
+            assert!((s - mean).abs() < 0.05 * mean, "picture {}: moved {s}, on average {mean}\n{:?}\nbehind {:?}", i + 16, steps, drawn[16..].iter().map(|d| d.1 as f32 - d.0).collect::<Vec<_>>());
         }
         // (frame by frame the walk moves 16 to 32 units: twice as far)
     }

@@ -128,6 +128,32 @@ impl AnimAction {
         along as f32 / (frames as f32 * (self.frame_repeat + 1) as f32)
     }
 
+    /// How far ahead of a figure going at the even pace (`average_stride`)
+    /// the actor has to be when a frame begins, so that the figure never
+    /// catches up with it in the cycle, wherever in the cycle that is (in
+    /// units of 4, as `average_stride`). The actor moves a frame's whole
+    /// way at its beginning; after a run of short frames the figure has
+    /// come closer by what they fell short of the even pace.
+    pub fn stride_slack(&self, dir: u8) -> f32 {
+        let first = if self.looping() && self.size > 1 { 1 } else { 0 };
+        let moves: Vec<f32> = (first..self.size).map(|n| self.frame(dir, n).delta_dir.abs() as f32).collect();
+        if moves.is_empty() {
+            return 0.0;
+        }
+        let even = moves.iter().sum::<f32>() / moves.len() as f32;
+        let mut slack: f32 = 0.0;
+        for start in 0..moves.len() {
+            // by the end of the k-th frame the figure has gone k even
+            // strides, the actor the k frames' moves: what it is short
+            let mut short = 0.0;
+            for k in 0..moves.len() {
+                short += even - moves[(start + k) % moves.len()];
+                slack = slack.max(short);
+            }
+        }
+        slack
+    }
+
     pub fn next_frame(&self, frame: usize, end: usize) -> usize {
         let mut f = frame + 1;
         if f == end {
