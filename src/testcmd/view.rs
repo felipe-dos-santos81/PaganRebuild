@@ -271,42 +271,66 @@ fn cmd_minimap(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
     Ok(Flow::Done)
 }
 
-/// smooth:<dir>[,run]  walk (run) with the smooth option on for 44 ticks,
-/// then stand; the ticks come at the game's pace (30 a second) and the view
-/// is drawn as often as it can in between. For each picture: the time, where
-/// the Avatar is, where he is drawn in the view, where the view lies, and
-/// so where the figure is drawn in the world ("figure", view pixels); then
-/// unrounded where the figure is drawn ("pos") and where the gliding
-/// camera points ("cam"), in world units.
+/// smooth:<dir>[,run][,<fps>]  walk (run) with the smooth option on for 44
+/// ticks, then stand; the ticks come at the game's pace (30 a second) and
+/// the view is drawn as often as it can in between, or `fps` times a second
+/// on the dot (as a screen in step would show it). For each picture: the
+/// time, where the Avatar is, where he is drawn in the view, where the view
+/// lies, and so where the figure is drawn in the world ("figure", view
+/// pixels); then unrounded where the figure is drawn ("pos") and where the
+/// gliding camera points ("cam"), in world units.
 fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
-    let (dir, run) = match arg.split_once(',') {
-        Some((d, "run")) => (d, true),
-        Some(_) => return Err(format!("{cmd}: smooth:<dir>[,run]")),
-        None => (arg, false),
-    };
+    let mut parts = arg.split(',');
+    let dir = num(parts.next().unwrap_or(""))? as u8 & 7;
+    let (mut run, mut fps) = (false, None);
+    for p in parts {
+        match p {
+            "run" => run = true,
+            n => fps = Some(num(n)?.max(1) as u32),
+        }
+    }
     game.options.smooth_camera = true;
-    let dir = num(dir)? as u8 & 7;
     let start = std::time::Instant::now();
     let tick_time = Duration::from_nanos(1_000_000_000 / 30);
+    let print = |game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, tick: u32, sub: u32| {
+        game.draw(surf, opts, false);
+        let at = start.elapsed().as_secs_f64() * 1000.0;
+        let av = game.avatar();
+        let shown = game.shown_at(AVATAR).unwrap_or((0, 0));
+        let o = game.view.origin;
+        let pos = game.drawn_position(AVATAR).unwrap_or_default();
+        // (the camera's own time: when the picture began)
+        let (cam, cam_at) = game.view.cam_smooth.map_or(((0.0, 0.0, 0.0), 0.0), |c| (c.0, c.1.saturating_duration_since(start).as_secs_f64() * 1000.0));
+        println!("tick {tick}.{sub}: ms {at:.1} world {},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1}",
+            av.x, av.y, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2);
+    };
     // (then stand still for a while: the view comes to rest)
     for tick in 0..64u32 {
         game.step((tick < 44).then_some(MoveInput { dir, run }));
         let next = start + tick_time * (tick + 1);
         let mut sub = 0;
-        while std::time::Instant::now() < next {
-            game.draw(surf, opts, false);
-            let at = start.elapsed().as_secs_f64() * 1000.0;
-            let av = game.avatar();
-            let shown = game.shown_at(AVATAR).unwrap_or((0, 0));
-            let o = game.view.origin;
-            let pos = game.drawn_position(AVATAR).unwrap_or_default();
-            // (the camera's own time: when the picture began)
-            let (cam, cam_at) = game.view.cam_smooth.map_or(((0.0, 0.0, 0.0), 0.0), |c| (c.0, c.1.saturating_duration_since(start).as_secs_f64() * 1000.0));
-            println!("tick {tick}.{sub}: ms {at:.1} world {},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1}",
-                av.x, av.y, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2);
-            sub += 1;
-            std::thread::sleep(Duration::from_millis(3));
+        match fps {
+            Some(f) => {
+                // the pictures due before the next tick, each on its moment
+                let frame = Duration::from_nanos(1_000_000_000 / f as u64);
+                let mut k = ((std::time::Instant::now() - start).as_nanos() / frame.as_nanos()) as u32 + 1;
+                while start + frame * k < next {
+                    let at = start + frame * k;
+                    std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+                    print(game, surf, opts, tick, sub);
+                    sub += 1;
+                    k += 1;
+                }
+                std::thread::sleep(next.saturating_duration_since(std::time::Instant::now()));
+            }
+            None => {
+                while std::time::Instant::now() < next {
+                    print(game, surf, opts, tick, sub);
+                    sub += 1;
+                    std::thread::sleep(Duration::from_millis(3));
+                }
+            }
         }
     }
     game.options.smooth_camera = false;

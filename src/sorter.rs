@@ -308,6 +308,17 @@ const CELL: i32 = 64;
 /// hundred pixels outside it); farther out they share the edge cells.
 const GRID_MARGIN: i32 = 1024;
 
+/// Where on the screen a figure (a creature) at x, y, z hangs, before the
+/// view's own place is taken off: the sums rounded once (down, also below
+/// zero), as the camera's (see `Sorter::add`, `view::render`).
+pub fn figure_sx(x: i32, y: i32) -> i32 {
+    (x - y).div_euclid(4)
+}
+
+pub fn figure_sy(x: i32, y: i32, z: i32) -> i32 {
+    (x + y).div_euclid(8) - z
+}
+
 pub struct Sorter {
     items: Vec<SortItem>,
     cam_sx: i32,
@@ -362,6 +373,13 @@ impl Sorter {
         let (x, y, z) = pos;
         let (x_left, y_far, z_top) = (x - xd, y - yd, z + zd);
         let (csx, csy) = (self.cam_sx, self.cam_sy);
+        // Where the picture hangs. Things are placed as in the original
+        // (each part rounded on its own); figures as the camera is, the sum
+        // rounded once: they move between the steps of their animation (and
+        // the camera with them), and with x/8 and y/8 rounded on their own a
+        // figure walking up or down the screen moved in 2-pixel jumps every
+        // other picture while the view went on 1 pixel each - it shook.
+        let (sx, sy) = if info.creature { (figure_sx(x, y), figure_sy(x, y, z)) } else { (x / 4 - y / 4, x / 8 + y / 8 - z) };
 
         let mut si = SortItem {
             shape,
@@ -378,8 +396,8 @@ impl Sorter {
             sx_right: x / 4 - y_far / 4 - csx,
             sx_top: x_left / 4 - y_far / 4 - csx,
             sy_top: x_left / 8 + y_far / 8 - z_top - csy,
-            sx: x / 4 - y / 4 - csx,
-            sy: x / 8 + y / 8 - z - csy,
+            sx: sx - csx,
+            sy: sy - csy,
             fbigsq: xd == 128 && yd == 128,
             flat: zd == 0,
             draw: info.draw,

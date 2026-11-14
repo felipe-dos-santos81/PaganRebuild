@@ -159,8 +159,9 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
     surf.pixels.fill(0);
     ids.clear();
     ids.resize((surf.width * surf.height) as usize, 0);
-    let cam_sx = (cam.x - cam.y) / 4 - surf.width / 2;
-    let cam_sy = (cam.x + cam.y) / 8 - cam.z - surf.height / 2;
+    // (rounded down as the figures are, see sorter::figure_sx)
+    let cam_sx = crate::sorter::figure_sx(cam.x, cam.y) - surf.width / 2;
+    let cam_sy = crate::sorter::figure_sy(cam.x, cam.y, cam.z) - surf.height / 2;
 
     // Shapes reach at most a few hundred pixels from their origin.
     const MARGIN: i32 = 512;
@@ -281,7 +282,8 @@ fn paint_climber(surf: &mut Surface, ids: &mut [u32], items: &[Item], infos: &[S
         .iter()
         .map(|t| t.in_world() && infos.get(t.shape as usize).is_some_and(|info| climbed_ledge(t, info, fig, fig_info, dir)))
         .collect();
-    let (sx, sy) = (fig.x / 4 - fig.y / 4 - cam_sx, fig.x / 8 + fig.y / 8 - fig.z - cam_sy);
+    // (placed as the sorter places figures)
+    let (sx, sy) = (crate::sorter::figure_sx(fig.x, fig.y) - cam_sx, crate::sorter::figure_sy(fig.x, fig.y, fig.z) - cam_sy);
     let id = figure as u32 + 1;
     let mut paint = |shape: u32, frame: u32, x: i32, y: i32, flipped: bool| {
         let Some(shape) = shapes.get(shape) else { return };

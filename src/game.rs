@@ -1448,7 +1448,8 @@ impl Game {
                 }
                 self.view.cam_vel = v;
                 self.view.cam_smooth = Some((c, now));
-                (c.0.round() as i32 + quake.0, c.1.round() as i32 + quake.1, c.2.round() as i32)
+                let (sx, sy, sz) = pixel_steady(c, (target.0 - quake.0, target.1 - quake.1, target.2));
+                (sx + quake.0, sy + quake.1, sz)
             }
             _ => {
                 self.view.cam_vel = (0.0, 0.0, 0.0);
@@ -1833,10 +1834,32 @@ pub fn roof_above(map: &MapData, infos: &[crate::shape::ShapeInfo], avatar: &Ite
     map.position_info(&probe, &probe, infos, AVATAR).roof_z
 }
 
+/// The gliding camera `c` (unrounded) as a point that keeps its distance
+/// to the target `t` (the figure it follows) in whole pixels of the view:
+/// across the screen ((x - y) / 4) and down it ((x + y) / 8) the distance
+/// is rounded, not the camera's own place. Rounded on their own, figure
+/// and camera each moved 1 or 2 pixels a picture by turns, out of step, and
+/// the figure shook a pixel to and fro on the screen; now both move alike
+/// and it shifts only as the distance itself grows or shrinks by a pixel.
+fn pixel_steady(c: (f32, f32, f32), t: (i32, i32, i32)) -> (i32, i32, i32) {
+    let (tx, ty, tz) = (t.0 as f32, t.1 as f32, t.2 as f32);
+    // the distance in pixels across and down, whole
+    let across = (((c.0 - c.1) - (tx - ty)) / 4.0).round() as i32;
+    let down = (((c.0 + c.1) - (tx + ty)) / 8.0).round() as i32;
+    // the camera's x - y and x + y: the target's, shifted by whole pixels
+    // (the view rounds them down: shifted by 4 and 8, they stay whole
+    // pixels apart from the target's)
+    let a = (t.0 - t.1) + 4 * across;
+    let b = (t.0 + t.1) + 8 * down;
+    // (a + b is even: x and y come out whole)
+    ((a + b) / 2, (b - a) / 2, (c.2 - tz).round() as i32 + t.2)
+}
+
 /// The top left of the view on the screen, around the camera point `cam`
 /// in a picture of `size`.
 fn view_origin(cam: (i32, i32, i32), size: (i32, i32)) -> (i32, i32) {
-    ((cam.0 - cam.1) / 4 - size.0 / 2, (cam.0 + cam.1) / 8 - cam.2 - size.1 / 2)
+    // (as view::render places it)
+    (crate::sorter::figure_sx(cam.0, cam.1) - size.0 / 2, crate::sorter::figure_sy(cam.0, cam.1, cam.2) - size.1 / 2)
 }
 
 #[cfg(test)]
@@ -1913,6 +1936,24 @@ mod tests {
         assert!(g.way.is_empty(), "still behind by {}", g.behind());
         assert_eq!(g.at.0, real as f32);
         assert!(t <= end + FRAME * 2 + Duration::from_millis(30), "took {:?} after the last frame", t - end);
+    }
+
+    #[test]
+    fn camera_keeps_whole_pixels_to_the_figure() {
+        use crate::sorter::{figure_sx, figure_sy};
+        for t in [(1000, 500, 8), (500, 1000, 8), (14527, 5887, 48), (3, 5, 0)] {
+            for (dx, dy, dz) in [(6.3, -2.1, 0.4), (-13.7, 9.2, -1.0), (0.4, 0.4, 0.0), (25.0, 25.0, 3.0), (-1.9, -30.2, 0.0)] {
+                let c = (t.0 as f32 + dx, t.1 as f32 + dy, t.2 as f32 + dz);
+                let cam = super::pixel_steady(c, t);
+                // the figure's place on the screen, less the view's: whole
+                // pixels, the distance rounded
+                let across = figure_sx(cam.0, cam.1) - figure_sx(t.0, t.1);
+                let down = figure_sy(cam.0, cam.1, 0) - figure_sy(t.0, t.1, 0);
+                assert_eq!(across, ((dx - dy) / 4.0).round() as i32, "across, target {t:?} distance {dx},{dy}");
+                assert_eq!(down, ((dx + dy) / 8.0).round() as i32, "down, target {t:?} distance {dx},{dy}");
+                assert_eq!(cam.2, t.2 + dz.round() as i32);
+            }
+        }
     }
 
     #[test]
