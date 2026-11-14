@@ -913,13 +913,22 @@ impl Game {
             let top = (head - total).clamp(2, (surf.height - total - 4).max(2));
             self.ask_top = top;
             self.ask_line = lh;
+            // the one picked with the keys or the pad: in yellow (the colour
+            // things speak in) with the gold stud of the menus before it
+            // (the game's fonts have no "<" or ">", which marked it before
+            // and stayed unseen)
+            let picked_font = self.data.font_or_plain(8).unwrap_or(font);
             for (i, c) in choices.iter().enumerate() {
-                // the one picked with the keys or the pad stands out
+                let line = format!("{}. {}", i + 1, c.trim());
                 let picked = self.ask_pick == Some(i);
-                let line = if picked { format!("> {}. {} <", i + 1, c.trim()) } else { format!("{}. {}", i + 1, c.trim()) };
-                let w = font.width_at(&line, ts);
-                let x = (ax - w / 2).clamp(2, (surf.width - w - 2).max(2));
-                font.draw_at(surf, &line, x, top + i as i32 * lh, pal, ts);
+                let f = if picked { picked_font } else { font };
+                let w = f.width_at(&line, ts);
+                let x = (ax - w / 2).clamp(12, (surf.width - w - 2).max(12));
+                let y = top + i as i32 * lh;
+                f.draw_at(surf, &line, x, y, pal, ts);
+                if picked {
+                    crate::menu::draw_stud(surf, x - 7, y + lh / 2, true, true);
+                }
             }
         }
     }

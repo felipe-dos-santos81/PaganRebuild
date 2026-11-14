@@ -281,6 +281,9 @@ impl Game {
             }
         };
         let pid = self.add_native(Kind::Ask, id, 0);
+        // the first answer stands picked from the start: Enter (the pad's
+        // A) takes it at once, up and down go on from it
+        self.ask_pick = (!choices.is_empty()).then_some(0);
         self.ask = Some((pid, choices));
         pid as u32
     }

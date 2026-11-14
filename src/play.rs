@@ -205,6 +205,12 @@ pub struct Play {
     key_map: crate::hash::HashMap<Key, Option<Key>>,
     /// An arrow held on the pad in a menu: which, since when, last repeated.
     pad_repeat: Option<(Key, Instant, Instant)>,
+    /// The pad was in the world (not in a menu, book or conversation) at
+    /// the last pass.
+    pad_world: bool,
+    /// Pad buttons held when it changed between the world and a menu: they
+    /// count again once let go (see `pad_pass`).
+    pad_stale: Vec<crate::platform::Pad>,
 }
 
 impl Play {
@@ -267,6 +273,8 @@ impl Play {
             fps: crate::debug::env().fps.then(Fps::new),
             key_map: Default::default(),
             pad_repeat: None,
+            pad_world: false,
+            pad_stale: Vec::new(),
         })
     }
 
@@ -360,15 +368,27 @@ impl Play {
             window.set_key_map(map.clone());
             self.key_map = map;
         }
+        // From the world into a menu or back (answers appear, a menu
+        // closes) the buttons mean something else: one still held from
+        // before counts only once it has been let go. (A pressed to skip
+        // the last line of speech arrived as a fresh "Enter" with the
+        // answers and took the first one unasked.)
+        if world != self.pad_world {
+            self.pad_world = world;
+            self.pad_stale = crate::platform::Pad::ALL.into_iter().filter(|&p| window.pad_down(p)).collect();
+        }
+        self.pad_stale.retain(|&p| window.pad_down(p));
+        let stale = &self.pad_stale;
+        let down = |p: crate::platform::Pad| window.pad_down(p) && !stale.contains(&p);
         let mut keys = crate::hash::HashSet::default();
         let mut buttons = [false; 2];
         let mut nav: Option<Key> = None;
         if !game.keys_waiting(true) {
             if world {
-                buttons = pad_in_world(window, &game.bindings, &mut keys);
+                buttons = pad_in_world(&down, &game.bindings, &mut keys);
             } else {
                 let back = if reading && !game.reader_browses() { Key::Space } else { Key::Escape };
-                buttons = pad_in_menus(window, reading, back, &mut keys);
+                buttons = pad_in_menus(window, &down, reading, back, &mut keys);
                 nav = [Key::Up, Key::Down, Key::Left, Key::Right].into_iter().find(|k| keys.contains(k));
             }
         }
@@ -798,6 +818,7 @@ impl Play {
         // or picked with the arrows (and the pad) and taken with Enter
         if let Some((_, choices)) = &game.ask {
             let n = choices.len() as i32;
+            // (the first one stands picked from the start, see intrinsics.rs)
             for (key, d) in [(Key::Up, -1), (Key::Down, 1)] {
                 if n > 0 && window.is_key_pressed(key, KeyRepeat::Yes) {
                     let at = game.ask_pick.map_or(if d > 0 { -1 } else { n }, |p| p as i32);
@@ -1482,11 +1503,12 @@ fn switched(game: &mut Game, on: bool, texts: [&str; 6]) {
 }
 
 /// The gamepad in the world: its buttons press the keys (or mouse buttons)
-/// they are given. Returns the mouse buttons held.
-fn pad_in_world(window: &Window, bindings: &crate::bindings::Bindings, keys: &mut crate::hash::HashSet<Key>) -> [bool; 2] {
+/// they are given (`down`: the buttons held that count). Returns the mouse
+/// buttons held.
+fn pad_in_world(down: &dyn Fn(crate::platform::Pad) -> bool, bindings: &crate::bindings::Bindings, keys: &mut crate::hash::HashSet<Key>) -> [bool; 2] {
     use crate::bindings::Does;
     let mut buttons = [false; 2];
-    for p in crate::platform::Pad::ALL.into_iter().filter(|&p| window.pad_down(p)) {
+    for p in crate::platform::Pad::ALL.into_iter().filter(|&p| down(p)) {
         match bindings.pad_does(p) {
             Some(Does::Key(k)) => {
                 keys.insert(k);
@@ -1501,7 +1523,8 @@ fn pad_in_world(window: &Window, bindings: &crate::bindings::Bindings, keys: &mu
 /// The gamepad in menus, books and conversations: A confirms (in a book:
 /// turns the page), `back` goes back, the cross and the left stick move.
 /// The triggers stay mouse buttons (for the pointer); returns them.
-fn pad_in_menus(window: &Window, reading: bool, back: Key, keys: &mut crate::hash::HashSet<Key>) -> [bool; 2] {
+/// `down`: the buttons held that count.
+fn pad_in_menus(window: &Window, down: &dyn Fn(crate::platform::Pad) -> bool, reading: bool, back: Key, keys: &mut crate::hash::HashSet<Key>) -> [bool; 2] {
     use crate::platform::Pad;
     let ok = if reading { Key::Space } else { Key::Enter };
     let pairs = [
@@ -1509,10 +1532,10 @@ fn pad_in_menus(window: &Window, reading: bool, back: Key, keys: &mut crate::has
         (Pad::LB, Key::PageUp), (Pad::RB, Key::PageDown),
         (Pad::Up, Key::Up), (Pad::Down, Key::Down), (Pad::Left, Key::Left), (Pad::Right, Key::Right),
     ];
-    keys.extend(pairs.into_iter().filter(|&(p, _)| window.pad_down(p)).map(|(_, k)| k));
+    keys.extend(pairs.into_iter().filter(|&(p, _)| down(p)).map(|(_, k)| k));
     // the left stick as the arrows
     let (sx, sy) = window.stick();
     let stick = [(sx < -0.5, Key::Left), (sx > 0.5, Key::Right), (sy > 0.5, Key::Up), (sy < -0.5, Key::Down)];
     keys.extend(stick.into_iter().filter(|&(on, _)| on).map(|(_, k)| k));
-    [window.pad_down(Pad::RT), window.pad_down(Pad::LT)]
+    [down(Pad::RT), down(Pad::LT)]
 }
