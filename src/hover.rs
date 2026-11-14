@@ -146,7 +146,8 @@ impl Game {
         }
         // the thing picked for "use" (option "cycle through things") says
         // what it is, also with the names under the pointer switched off
-        if let (Some(id), Some(text)) = (self.ui.picked, self.ui.picked_name.clone()) {
+        for (id, text) in [(self.ui.picked, self.ui.picked_name.clone()), (self.ui.window_picked, self.ui.window_picked_name.clone())] {
+            let (Some(id), Some(text)) = (id, text) else { continue };
             if !self.barks.iter().any(|b| b.item == id) {
                 self.barks.push(Bark { pid: 0, item: id, text });
             }

@@ -142,7 +142,7 @@ impl Game {
     }
 
     /// Screen position of the corner the contents are placed relative to.
-    fn gump_item_origin(&mut self, g_index: usize) -> Option<(i32, i32)> {
+    pub(crate) fn gump_item_origin(&mut self, g_index: usize) -> Option<(i32, i32)> {
         let g = &self.ui.gumps[g_index];
         let area = self.data.gump_areas.get(g.shape.checked_sub(1)? as usize).copied().unwrap_or([0; 4]);
         Some((g.x + area[0], g.y + area[1]))
@@ -246,6 +246,7 @@ impl Game {
             let (owner, gshape, gx, gy) = { let g = &self.ui.gumps[gi]; (g.owner, g.shape, g.x, g.y) };
             if self.grid_window(owner) {
                 self.draw_grid(surf, gi);
+                self.draw_window_pick(surf, gi);
                 continue;
             }
             if let Some(shape) = self.data.gump_shapes.get(gshape) {
@@ -271,6 +272,8 @@ impl Game {
                     }
                 }
             }
+            // the thing picked with the pad (option "cycle through things")
+            self.draw_window_pick(surf, gi);
         }
         self.draw_practice_hint(surf);
     }

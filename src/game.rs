@@ -799,8 +799,10 @@ impl Game {
         self.tick_journal();
         self.tick_guide();
         self.tick_approach();
-        // the thing picked for "use" is let go once out of reach
+        // the thing picked for "use" is let go once out of reach (or, in a
+        // window, once that is closed)
         self.picked_in_reach();
+        self.window_picked();
         self.tick_auto_climb();
         self.tick_click_fight();
         let ids: Vec<u16> = self.actors.keys().copied().collect();

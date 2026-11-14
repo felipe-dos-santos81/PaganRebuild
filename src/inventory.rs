@@ -454,6 +454,19 @@ impl Game {
         Some((gx + sx + SLOT / 2, gy + sy - 2))
     }
 
+    /// The slot of a thing in slot window `gi` on the screen (left, top,
+    /// right, bottom), if it is on the page shown.
+    pub fn grid_slot_rect(&mut self, gi: usize, id: u16) -> Option<(i32, i32, i32, i32)> {
+        let (owner, gx, gy) = { let g = &self.ui.gumps[gi]; (g.owner, g.x, g.y) };
+        let page = self.grid_page(owner);
+        let (s, _) = self.grid_layout(owner).into_iter().find(|&(_, i)| i == id)?;
+        if s / PER_PAGE != page {
+            return None;
+        }
+        let (sx, sy) = Self::slot_corner(s);
+        Some((gx + sx, gy + sy, gx + sx + SLOT - 1, gy + sy + SLOT - 1))
+    }
+
     /// Draws the slot window `gi`.
     pub fn draw_grid(&mut self, surf: &mut Surface, gi: usize) {
         let (owner, gshape, gx, gy) = { let g = &self.ui.gumps[gi]; (g.owner, g.shape, g.x, g.y) };

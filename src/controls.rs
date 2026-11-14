@@ -197,6 +197,12 @@ impl Game {
         if !self.player_may_order() {
             return None;
         }
+        // a thing picked in an open container's window comes first; the
+        // pick stays on it (a bag opens, a potion is drunk and gone)
+        if let Some(id) = self.window_picked() {
+            self.interact(id, true);
+            return Some(id);
+        }
         let picked = self.ui.picked.take();
         if let Some(id) = picked.filter(|&id| self.in_reach(true).contains(&id)) {
             // a walk the player sent him on ends here

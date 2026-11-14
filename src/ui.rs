@@ -43,6 +43,10 @@ pub struct Ui {
     /// Its name, shown over it: it may stand behind the Avatar or
     /// something else, where its light is not seen.
     pub picked_name: Option<String>,
+    /// The thing picked in an open container's window (windowpick.rs),
+    /// and its name.
+    pub window_picked: Option<u16>,
+    pub window_picked_name: Option<String>,
     /// The main menu, the name entry, a movie or the credits.
     pub title: Option<crate::title::Title>,
     /// The large map with the list of places (option "guide", key O).

@@ -785,6 +785,23 @@ impl Play {
                 }
             }
         }
+        // A container open (option "cycle through things"): the pad's
+        // buttons for kicking and closing windows go through the things in
+        // the open windows, jumping closes them, attacking moves the thing
+        // picked between the backpack and the other container. Only presses
+        // of the pad: the keyboard keeps its keys (it has the mouse).
+        let pad_windows = modern && game.options.pick_things && game.item_windows_open() && game.player_in_control();
+        let pad = |k: Key| pad_windows && window.pad_holds(k) && window.is_key_pressed(k, KeyRepeat::No);
+        let (win_back, win_next, win_close, win_carry) = (pad(Key::Q), pad(Key::C), pad(Key::J), pad(Key::F));
+        if win_back || win_next {
+            game.pick_in_window(if win_back { -1 } else { 1 });
+        }
+        if win_close {
+            game.close_all_gumps();
+        }
+        if win_carry {
+            game.carry_picked();
+        }
         // reading: any click or space turns the page
         // (walking with the keys or the stick, and with the pad's jump
         // button, a jump goes straight ahead - up a ledge in front, or ahead
@@ -807,13 +824,13 @@ impl Play {
                 game.jump(pointer, w, h);
             }
         }
-        if window.is_key_pressed(Key::J, KeyRepeat::No) {
+        if window.is_key_pressed(Key::J, KeyRepeat::No) && !win_close {
             game.jump(pointer, w, h);
         }
         if window.is_key_pressed(Key::Tab, KeyRepeat::No) {
             game.toggle_combat();
         }
-        if window.is_key_pressed(Key::F, KeyRepeat::No) {
+        if window.is_key_pressed(Key::F, KeyRepeat::No) && !win_carry {
             // at the nearest enemy; held down, the Avatar keeps striking
             game.attack_nearest();
             self.attack_key_held = true;
@@ -826,7 +843,7 @@ impl Play {
             // the key ring, as in the original (it asks for the door or chest)
             game.use_keyring();
         }
-        if window.is_key_pressed(Key::Q, KeyRepeat::No) {
+        if window.is_key_pressed(Key::Q, KeyRepeat::No) && !win_back {
             game.avatar_attack(None, true);
         }
         game.avatar_block(window.is_key_down(Key::B));
@@ -848,7 +865,7 @@ impl Play {
         if window.is_key_pressed(Key::I, KeyRepeat::No) {
             game.open_inventory();
         }
-        if window.is_key_pressed(Key::C, KeyRepeat::No) {
+        if window.is_key_pressed(Key::C, KeyRepeat::No) && !win_next {
             game.close_all_gumps();
         }
     }

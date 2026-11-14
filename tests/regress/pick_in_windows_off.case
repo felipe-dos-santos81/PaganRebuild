@@ -1,0 +1,5 @@
+# Cycle through things switched off: nothing is picked in the open windows, and nothing is moved
+args: --map 4 --pos 10624,10060,48
+do: option:pick_things,off;t5;operate:36462;t10;inv;t1;pickwin:1;carry
+expect: pickwin: nothing
+expect: carry: false, now nothing picked

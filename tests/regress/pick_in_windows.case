@@ -1,0 +1,7 @@
+# Cycle through things in open containers (the pad): a barrel by the hut on map 4 and the backpack open; the barrel's things one by one, the flask of oil into the backpack and back into the barrel
+args: --map 4 --pos 10624,10060,48
+do: t5;operate:36462;t10;inv;t1;pickwin:1;pickwin:1;carry;inside:36462;pickwin:1;pickwin:-1;carry;inside:36462
+expect: pickwin: id 36467 shape  471
+expect: name Some("flask of oil")
+expect: carry: true
+reject: carry: false

@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 11] = [
+const COMMANDS: [(&str, super::Group); 13] = [
     ("walkturns", cmd_walkturns),
     ("ledges", cmd_ledges),
     ("climbwalk", cmd_climbwalk),
@@ -20,6 +20,8 @@ const COMMANDS: [(&str, super::Group); 11] = [
     ("run", cmd_run),
     ("usenear", cmd_usenear),
     ("pickthing", cmd_pickthing),
+    ("pickwin", cmd_pickwin),
+    ("carry", cmd_carry),
     ("follow", cmd_follow),
     ("jump", cmd_jump),
 ];
@@ -155,6 +157,30 @@ fn cmd_pickthing(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
     let picked = game.pick_thing(step);
     println!("pickthing: {}", picked.and_then(|id| game.map().get(id).map(|it| game.describe(it))).unwrap_or("nothing".into()));
     println!("pickthing name: {:?}", game.ui.picked_name.as_deref().filter(|_| picked.is_some()));
+    Ok(Flow::Done)
+}
+
+/// pickwin:<1|-1>  the next (previous) thing in the open containers'
+/// windows, as with the pad (option "cycle through things"), and the page
+/// of the backpack shown
+fn cmd_pickwin(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let step = number(arg, cmd)?;
+    game.draw(surf, opts, false);
+    let picked = game.pick_in_window(step);
+    let page = game.backpack().map(|p| game.shown_page(p)).unwrap_or(0);
+    println!("pickwin: {} name {:?} page {page}", picked.and_then(|id| game.map().get(id).map(|it| game.describe(it))).unwrap_or("nothing".into()), game.ui.window_picked_name.as_deref().filter(|_| picked.is_some()));
+    Ok(Flow::Done)
+}
+
+/// carry  the thing picked in a window between the backpack and the other
+/// container open (the pad's attack button)
+fn cmd_carry(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
+    let moved = game.carry_picked();
+    let it = game.ui.window_picked.and_then(|id| game.map().get(id).copied());
+    println!("carry: {moved}, now {}", it.map(|it| game.describe(&it)).unwrap_or("nothing picked".into()));
+    if let Some((text, _)) = &game.ui.notice {
+        println!("carry notice: {text}");
+    }
     Ok(Flow::Done)
 }
 
