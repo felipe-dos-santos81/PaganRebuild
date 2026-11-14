@@ -213,6 +213,8 @@ pub struct Play {
     /// Pad buttons held when it changed between the world and a menu: they
     /// count again once let go (see `pad_pass`).
     pad_stale: Vec<crate::platform::Pad>,
+    /// The moment the last picture stood for (see `even_moment`).
+    frame_moment: Option<FrameMoment>,
 }
 
 impl Play {
@@ -277,6 +279,7 @@ impl Play {
             pad_repeat: None,
             pad_world: false,
             pad_stale: Vec::new(),
+            frame_moment: None,
         })
     }
 
@@ -490,6 +493,8 @@ impl Play {
 
     /// The picture of a screen that has the game standing still.
     fn show_still(&mut self) -> Result<(), Box<dyn Error>> {
+        // (the game stands still: placed by the clock, see `even_moment`)
+        self.game.view.frame_clock = None;
         self.game.draw(&mut self.surf, &mut self.opts, self.roofs_always);
         let state = cursor::PointerState { moving_window: self.gump_held.is_some() };
         present(&mut self.window, &self.surf, &mut self.shown, &mut self.upscaled, &mut self.game, &self.mouse_pointer, state)?;
@@ -1416,6 +1421,9 @@ impl Play {
         let t_draw = Instant::now();
         let game = &mut self.game;
         if self.dirty || game.camera_gliding() || game.ui.notice.is_some() || game.turn.turning() {
+            // the moment this picture stands for: a screen refresh (or two,
+            // see pacing.rs) after the one before, drawn when it may be
+            game.view.frame_clock = Some(even_moment(&mut self.frame_moment, t_draw, self.pacer.period()));
             game.draw(&mut self.surf, &mut self.opts, self.roofs_always);
             let a = game.avatar();
             self.window.set_title(&format!("PaganRebuild - map {} - {},{},{}", game.cur_map, a.x, a.y, a.z));
@@ -1507,6 +1515,49 @@ impl Play {
     }
 }
 
+/// The moments the pictures stand for (see `even_moment`).
+struct FrameMoment {
+    /// The moment of the last picture.
+    moment: Instant,
+    /// When it was really drawn.
+    drawn: Instant,
+    /// The time from one picture to the next, on average.
+    step: Duration,
+}
+
+/// The moment a picture stands for: the average time between pictures
+/// after the last one, drawn a little towards the clock (`now`) so that it
+/// does not drift off; after a pause, or far off, the clock itself. The
+/// pictures are shown evenly; drawn at uneven moments (Proton on the Steam
+/// Deck: the wait for the screen's refresh does not hold them back), the
+/// figures placed by the clock wobbled on the screen. `period`: the time a
+/// picture is shown, to start with. The average is taken from the real
+/// pictures: the refresh the system reports need not be the screen's.
+fn even_moment(last: &mut Option<FrameMoment>, now: Instant, period: Duration) -> Instant {
+    let moment = match last {
+        Some(f) => {
+            let interval = now.saturating_duration_since(f.drawn);
+            // (a pause - a menu, a still picture - does not count)
+            if interval < f.step * 4 {
+                f.step = f.step * 7 / 8 + interval / 8;
+            }
+            let next = f.moment + f.step;
+            let (ahead, gap) = if now >= next { (false, now - next) } else { (true, next - now) };
+            if gap > f.step * 2 {
+                now
+            } else if ahead {
+                next - gap / 8
+            } else {
+                next + gap / 8
+            }
+        }
+        None => now,
+    };
+    let step = last.as_ref().map_or(period, |f| f.step);
+    *last = Some(FrameMoment { moment, drawn: now, step });
+    moment
+}
+
 /// An option switched with a key: it is remembered and the player is told
 /// (`texts`: German on / off, French on / off, English on / off).
 fn switched(game: &mut Game, on: bool, texts: [&str; 6]) {
@@ -1551,4 +1602,46 @@ fn pad_in_menus(window: &Window, down: &dyn Fn(crate::platform::Pad) -> bool, re
     let stick = [(sx < -0.5, Key::Left), (sx > 0.5, Key::Right), (sy > 0.5, Key::Up), (sy < -0.5, Key::Down)];
     keys.extend(stick.into_iter().filter(|&(on, _)| on).map(|(_, k)| k));
     [down(Pad::RT), down(Pad::LT)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::even_moment;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn uneven_drawing_even_moments() {
+        // drawn 4 ms and 29 ms apart by turns (shown every 16.7 ms on average)
+        let t0 = Instant::now();
+        let period = Duration::from_micros(16_667);
+        let mut last = None;
+        let mut now = t0;
+        let mut moments = Vec::new();
+        for i in 0..200 {
+            now += Duration::from_micros(if i % 2 == 0 { 4_000 } else { 29_334 });
+            moments.push(even_moment(&mut last, now, period));
+        }
+        // after settling: every step close to the average, not 4 or 29 ms
+        for (i, w) in moments[60..].windows(2).enumerate() {
+            let step = (w[1] - w[0]).as_secs_f64() * 1000.0;
+            assert!((step - 16.667).abs() < 3.0, "picture {}: {step:.2} ms", i + 60);
+        }
+        // and they stay with the clock
+        let off = (now.max(moments[199]) - now.min(moments[199])).as_secs_f64() * 1000.0;
+        assert!(off < 20.0, "{off:.1} ms off the clock");
+    }
+
+    #[test]
+    fn after_a_pause_the_clock() {
+        let t0 = Instant::now();
+        let period = Duration::from_micros(16_667);
+        let mut last = None;
+        let mut now = t0;
+        for _ in 0..30 {
+            now += period;
+            even_moment(&mut last, now, period);
+        }
+        now += Duration::from_secs(2);
+        assert_eq!(even_moment(&mut last, now, period), now);
+    }
 }

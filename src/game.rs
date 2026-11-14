@@ -187,6 +187,13 @@ pub struct ViewState {
     pub(crate) lerps: HashMap<u16, Lerp>,
     /// Where the gliding camera is right now, and when it was last moved.
     pub(crate) cam_smooth: Option<((f32, f32, f32), std::time::Instant)>,
+    /// The moment the picture being drawn stands for, one screen refresh
+    /// after the one before (set by the window, play.rs): the figures
+    /// between their steps and the gliding camera are placed for it. Where
+    /// the pictures are drawn at uneven moments but shown evenly (Proton
+    /// on the Steam Deck), placing them by the clock made the figure
+    /// wobble. None: the clock (tests).
+    pub(crate) frame_clock: Option<std::time::Instant>,
     /// The general light of the lighting as last drawn, and at which tick:
     /// it goes over smoothly to a new one (into a cave, through the day).
     pub(crate) ambient_now: Option<([f32; 3], u32)>,
@@ -228,6 +235,7 @@ impl ViewState {
             under_menu: None,
             lerps: HashMap::default(),
             cam_smooth: None,
+            frame_clock: None,
             ambient_now: None,
             covered_seen: (usize::MAX, HashMap::default()),
             rooms_seen: (usize::MAX, HashMap::default()),
@@ -1136,6 +1144,11 @@ impl Game {
         self.draw_notice(surf);
     }
 
+    /// The moment the picture being drawn stands for (see `frame_clock`).
+    fn draw_moment(&self) -> std::time::Instant {
+        self.view.frame_clock.unwrap_or_else(std::time::Instant::now)
+    }
+
     /// With the smooth camera: actors between two steps are put where they
     /// are on their way. Returns the real positions, to be put back after
     /// drawing.
@@ -1145,7 +1158,7 @@ impl Game {
             self.view.lerps.clear();
             return moved;
         }
-        let now = std::time::Instant::now();
+        let now = self.draw_moment();
         let lerps = std::mem::take(&mut self.view.lerps);
         for (id, mut l) in lerps {
             let (pos, done) = l.position(now);
@@ -1392,7 +1405,7 @@ impl Game {
         let (qx, qy) = self.screen.quake_offset;
         let quake = (2 * qx + 4 * qy, -2 * qx + 4 * qy);
         let t = ((target.0 - quake.0) as f32, (target.1 - quake.1) as f32, target.2 as f32);
-        let now = std::time::Instant::now();
+        let now = self.draw_moment();
         let far = |c: (f32, f32, f32)| (c.0 - t.0).abs().max((c.1 - t.1).abs()) > 1500.0;
         match self.view.cam_smooth {
             // The camera is pulled after its target like on a damped spring.
