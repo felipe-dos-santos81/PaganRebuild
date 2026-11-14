@@ -286,8 +286,9 @@ pub struct Options {
     /// Avatar follow the pointer (running when it is far away).
     pub hold_walk: bool,
     /// With the modern controls: two keys (pad: up and down) go through
-    /// the things in reach one by one, lighting up the one picked, and "use"
-    /// uses that one instead of the nearest (controls.rs, `pick_thing`).
+    /// the things in reach that can be used or taken, lighting up the one
+    /// picked, and "use" uses or takes that one instead of using the
+    /// nearest (controls.rs, `pick_thing`).
     pub pick_things: bool,
     /// A journal of the quests (key T) that notes what the Avatar has
     /// learned and done.

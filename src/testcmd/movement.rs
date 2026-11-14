@@ -161,6 +161,10 @@ fn cmd_pickthing(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
 fn cmd_usenear(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
     let used = game.use_nearest();
     println!("usenear: {}", used.and_then(|id| game.map().get(id).map(|it| game.describe(it))).unwrap_or("nothing".into()));
+    // what the player is told (too heavy, no room ...)
+    if let Some((text, _)) = &game.ui.notice {
+        println!("usenear notice: {text}");
+    }
     Ok(Flow::Done)
 }
 

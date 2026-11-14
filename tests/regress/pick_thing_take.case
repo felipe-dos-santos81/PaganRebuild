@@ -1,0 +1,9 @@
+# Cycle through things also offers what can only be taken (the furs in the hut on map 4, next to the bedroll); E on such a thing takes it into the backpack
+args: --map 4 --pos 10512,9720,48
+do: t5;pickthing:1;pickthing:1;pickthing:1;pickthing:1;usenear;item:36452
+expect: pickthing: id 36452 shape  659
+expect: pickthing name: Some("bedroll")
+expect: pickthing: id 36476 shape  659
+expect: usenear: id 36452 shape  659
+expect: id 36733 shape  529 frame   0 at 0,0,7
+reject: usenear notice:

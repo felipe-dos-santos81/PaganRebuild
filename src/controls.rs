@@ -190,16 +190,25 @@ impl Game {
     }
 
     /// Uses the thing picked with the keys (option "cycle through things")
-    /// if it is still in reach, else the usable thing closest to the
-    /// Avatar, in front of him rather than behind.
+    /// if it is still in reach: what can be used is used, what can only be
+    /// carried is taken into the backpack. Without one picked, the usable
+    /// thing closest to the Avatar, in front of him rather than behind.
     pub fn use_nearest(&mut self) -> Option<u16> {
         if !self.player_may_order() {
             return None;
         }
-        let near = self.usable_in_reach();
-        let picked = self.ui.picked.take().filter(|id| near.contains(id));
-        let id = picked.or_else(|| near.first().copied())?;
-        // a walk the player sent him on ends here
+        let picked = self.ui.picked.take();
+        if let Some(id) = picked.filter(|&id| self.in_reach(true).contains(&id)) {
+            // a walk the player sent him on ends here
+            self.cancel_approach();
+            if self.usable(id) {
+                self.interact(id, true);
+            } else if self.take_into_backpack(id).is_none() {
+                self.interact(id, false);
+            }
+            return Some(id);
+        }
+        let id = self.in_reach(false).first().copied()?;
         self.cancel_approach();
         self.interact(id, true);
         Some(id)
@@ -207,14 +216,15 @@ impl Game {
 
     /// Option "cycle through things": picks the next thing in reach
     /// (`step` 1) or the one before (-1), going round the Avatar clockwise
-    /// as they lie on the screen. The first press picks what "use" would
-    /// use anyway. None if there is nothing in reach.
+    /// as they lie on the screen: what can be used or taken (what the key
+    /// that shows everything lights up). The first press picks the closest.
+    /// None if there is nothing in reach.
     pub fn pick_thing(&mut self, step: i32) -> Option<u16> {
         if !self.options.pick_things || !self.player_may_order() {
             self.ui.picked = None;
             return None;
         }
-        let near = self.usable_in_reach();
+        let near = self.in_reach(true);
         let Some(&closest) = near.first() else {
             self.ui.picked = None;
             return None;
@@ -247,16 +257,16 @@ impl Game {
     /// let go once he has moved away from it (seen to every tick).
     pub fn picked_in_reach(&mut self) -> Option<u16> {
         let id = self.ui.picked?;
-        if !self.options.pick_things || !self.usable_in_reach().contains(&id) {
+        if !self.options.pick_things || !self.in_reach(true).contains(&id) {
             self.ui.picked = None;
         }
         self.ui.picked
     }
 
-    /// The usable things the Avatar can reach from where he stands, the
-    /// best first: the closest, in front of him rather than behind (the
-    /// one "use" takes).
-    fn usable_in_reach(&mut self) -> Vec<u16> {
+    /// The usable things (`carry`: and those that can be taken) the Avatar
+    /// can reach from where he stands, the best first: the closest, in
+    /// front of him rather than behind (the one "use" takes).
+    fn in_reach(&mut self, carry: bool) -> Vec<u16> {
         const XF: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
         const YF: [i32; 8] = [-1, -1, 0, 1, 1, 1, 0, -1];
         let avatar = self.avatar();
@@ -273,7 +283,7 @@ impl Game {
                 continue;
             }
             let gap = self.box_gap(&avatar, &it);
-            if gap > REACH - 16 || !self.usable(it.id) {
+            if gap > REACH - 16 || !(self.usable(it.id) || (carry && self.portable(it.id))) {
                 continue;
             }
             let (cx, cy) = centre(self, &it);
