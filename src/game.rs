@@ -799,6 +799,8 @@ impl Game {
         self.tick_journal();
         self.tick_guide();
         self.tick_approach();
+        // the thing picked for "use" is let go once out of reach
+        self.picked_in_reach();
         self.tick_auto_climb();
         self.tick_click_fight();
         let ids: Vec<u16> = self.actors.keys().copied().collect();
@@ -1088,6 +1090,7 @@ impl Game {
         if self.options.modern_controls {
             self.draw_show_all(surf);
             self.draw_hover(surf);
+            self.draw_picked(surf);
         }
         self.draw_health_bars(surf);
         // the real positions back

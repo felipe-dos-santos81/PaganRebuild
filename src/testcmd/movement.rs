@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 10] = [
+const COMMANDS: [(&str, super::Group); 11] = [
     ("walkturns", cmd_walkturns),
     ("ledges", cmd_ledges),
     ("climbwalk", cmd_climbwalk),
@@ -19,6 +19,7 @@ const COMMANDS: [(&str, super::Group); 10] = [
     ("walkclick", cmd_walkclick),
     ("run", cmd_run),
     ("usenear", cmd_usenear),
+    ("pickthing", cmd_pickthing),
     ("follow", cmd_follow),
     ("jump", cmd_jump),
 ];
@@ -143,6 +144,17 @@ fn cmd_walkclick(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
 
 fn cmd_run(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
     game.orders.run_toggle = !game.orders.run_toggle;
+    Ok(Flow::Done)
+}
+
+/// pickthing:<1|-1>  the next (previous) thing in reach for "use", as with
+/// X and Y (option "cycle through things")
+fn cmd_pickthing(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let step = number(arg, cmd)?;
+    game.draw(surf, opts, false);
+    let picked = game.pick_thing(step);
+    println!("pickthing: {}", picked.and_then(|id| game.map().get(id).map(|it| game.describe(it))).unwrap_or("nothing".into()));
+    println!("pickthing name: {:?}", game.ui.picked_name.as_deref().filter(|_| picked.is_some()));
     Ok(Flow::Done)
 }
 

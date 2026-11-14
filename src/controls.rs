@@ -189,14 +189,76 @@ impl Game {
         }
     }
 
-    /// The usable thing closest to the Avatar, in front of him rather
-    /// than behind.
+    /// Uses the thing picked with the keys (option "cycle through things")
+    /// if it is still in reach, else the usable thing closest to the
+    /// Avatar, in front of him rather than behind.
     pub fn use_nearest(&mut self) -> Option<u16> {
-        const XF: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
-        const YF: [i32; 8] = [-1, -1, 0, 1, 1, 1, 0, -1];
         if !self.player_may_order() {
             return None;
         }
+        let near = self.usable_in_reach();
+        let picked = self.ui.picked.take().filter(|id| near.contains(id));
+        let id = picked.or_else(|| near.first().copied())?;
+        // a walk the player sent him on ends here
+        self.cancel_approach();
+        self.interact(id, true);
+        Some(id)
+    }
+
+    /// Option "cycle through things": picks the next thing in reach
+    /// (`step` 1) or the one before (-1), going round the Avatar clockwise
+    /// as they lie on the screen. The first press picks what "use" would
+    /// use anyway. None if there is nothing in reach.
+    pub fn pick_thing(&mut self, step: i32) -> Option<u16> {
+        if !self.options.pick_things || !self.player_may_order() {
+            self.ui.picked = None;
+            return None;
+        }
+        let near = self.usable_in_reach();
+        let Some(&closest) = near.first() else {
+            self.ui.picked = None;
+            return None;
+        };
+        // round him, clockwise from straight up on the screen
+        let avatar = self.avatar();
+        let (ax, ay) = self.to_screen(avatar.x, avatar.y, avatar.z);
+        let angle = |g: &Game, id: u16| {
+            let Some(it) = g.map().get(id).copied() else { return 0.0 };
+            let b = g.data.infos.get(it.shape as usize).map_or(WorldBox { x: it.x, y: it.y, z: it.z, xd: 0, yd: 0, zd: 0 }, |si| WorldBox::of(&it, si));
+            let (sx, sy) = g.to_screen(b.x - b.xd / 2, b.y - b.yd / 2, b.z);
+            // (the view is squashed 2:1)
+            let a = ((sx - ax) as f32).atan2(-2.0 * (sy - ay) as f32);
+            if a < 0.0 { a + std::f32::consts::TAU } else { a }
+        };
+        let mut ring: Vec<(f32, u16)> = near.iter().map(|&id| (angle(self, id), id)).collect();
+        ring.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let picked = match self.ui.picked.and_then(|id| ring.iter().position(|r| r.1 == id)) {
+            Some(i) => ring[(i as i32 + step).rem_euclid(ring.len() as i32) as usize].1,
+            None => closest,
+        };
+        if self.ui.picked != Some(picked) {
+            self.ui.picked_name = self.look_name(picked).or_else(|| self.unnamed_thing(picked));
+        }
+        self.ui.picked = Some(picked);
+        Some(picked)
+    }
+
+    /// The thing picked, while it is still in reach (drawn lit up); it is
+    /// let go once he has moved away from it (seen to every tick).
+    pub fn picked_in_reach(&mut self) -> Option<u16> {
+        let id = self.ui.picked?;
+        if !self.options.pick_things || !self.usable_in_reach().contains(&id) {
+            self.ui.picked = None;
+        }
+        self.ui.picked
+    }
+
+    /// The usable things the Avatar can reach from where he stands, the
+    /// best first: the closest, in front of him rather than behind (the
+    /// one "use" takes).
+    fn usable_in_reach(&mut self) -> Vec<u16> {
+        const XF: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
+        const YF: [i32; 8] = [-1, -1, 0, 1, 1, 1, 0, -1];
         let avatar = self.avatar();
         let dir = self.mover(AVATAR).dir as usize & 7;
         let centre = |g: &Game, it: &crate::map::Item| {
@@ -205,7 +267,7 @@ impl Game {
         };
         let (ax, ay) = centre(self, &avatar);
         let near: Vec<crate::map::Item> = self.map().items_near(avatar.x, avatar.y, 320).into_iter().map(|i| self.map().items[i]).collect();
-        let mut best: Option<(i32, u16)> = None;
+        let mut found: Vec<(i32, u16)> = Vec::new();
         for it in near {
             if it.id == 0 || it.id == AVATAR || !it.in_world() || (it.z - avatar.z).abs() > REACH_HEIGHT {
                 continue;
@@ -218,15 +280,11 @@ impl Game {
             // the closest; what is behind him has to be clearly closer
             let ahead = (cx - ax) * XF[dir] + (cy - ay) * YF[dir];
             let score = gap + if ahead > 0 { 0 } else { 48 };
-            if best.is_none_or(|b| score < b.0) {
-                best = Some((score, it.id));
-            }
+            found.push((score, it.id));
         }
-        let (_, id) = best?;
-        // a walk the player sent him on ends here
-        self.cancel_approach();
-        self.interact(id, true);
-        Some(id)
+        // (the same score: the order they lie in, as before)
+        found.sort_by_key(|f| f.0);
+        found.into_iter().map(|f| f.1).collect()
     }
 
     /// Remembers what the pointer is on, to light it up. Returns true if
@@ -274,6 +332,16 @@ impl Game {
                         ("Hold on ground", "Follow the pointer"),
                     ]));
                 }
+            }
+        }
+        if self.options.modern_controls && self.options.pick_things {
+            // which thing E uses: picked with Y and X
+            if let Some(i) = help.iter().position(|h| h.0 == "E") {
+                help.insert(i + 1, self.tr([
+                    ("Y, X", "Ding f\u{81}r E w\u{84}hlen"),
+                    ("Y, X", "Choisir l'objet pour E"),
+                    ("Y, X", "Pick the thing for E"),
+                ]));
             }
         }
         if self.options.modern_controls {

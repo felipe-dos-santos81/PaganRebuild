@@ -34,13 +34,18 @@ const fn act(id: &'static str, names: [&'static str; 3], key: Key, pad: Option<P
     Action { id, names, does: Does::Key(key), pad }
 }
 
-pub const ACTIONS: [Action; 34] = [
+pub const ACTIONS: [Action; 36] = [
     act("up", ["Gehen: hoch", "Marcher: haut", "Walk up"], Key::W, None),
     act("down", ["Gehen: runter", "Marcher: bas", "Walk down"], Key::S, None),
     act("left", ["Gehen: links", "Marcher: gauche", "Walk left"], Key::A, None),
     act("right", ["Gehen: rechts", "Marcher: droite", "Walk right"], Key::D, None),
     act("run", ["Rennen", "Courir", "Run"], Key::LeftShift, Some(Pad::LStick)),
     act("use", ["Benutzen", "Utiliser", "Use"], Key::E, Some(Pad::A)),
+    // choosing which thing in reach "use" uses (option "cycle through
+    // things"); before the zoom, which had the pad's up and down: in a
+    // keys.ini from before, the zoom gives them up (the later one loses)
+    act("prevthing", ["Ding w\u{84}hlen: zur\u{81}ck", "Objet : pr\u{82}c\u{82}dent", "Pick thing: previous"], Key::Y, Some(Pad::Up)),
+    act("nextthing", ["Ding w\u{84}hlen: weiter", "Objet : suivant", "Pick thing: next"], Key::X, Some(Pad::Down)),
     act("jump", ["Springen", "Sauter", "Jump"], Key::J, Some(Pad::B)),
     act("attack", ["Angreifen", "Attaquer", "Attack"], Key::F, Some(Pad::X)),
     act("kick", ["Treten", "Coup de pied", "Kick"], Key::Q, Some(Pad::Left)),
@@ -55,8 +60,8 @@ pub const ACTIONS: [Action; 34] = [
     act("quickload", ["Schnell laden", "Chargement rapide", "Quick load"], Key::F9, None),
     act("journal", ["Tagebuch", "Journal", "Journal"], Key::T, Some(Pad::Back)),
     act("highlight", ["Alles hervorheben", "Tout montrer", "Highlight all"], Key::H, Some(Pad::RStick)),
-    act("zoomin", ["Zoom +", "Zoom +", "Zoom in"], Key::Equal, Some(Pad::Up)),
-    act("zoomout", ["Zoom -", "Zoom -", "Zoom out"], Key::Minus, Some(Pad::Down)),
+    act("zoomin", ["Zoom +", "Zoom +", "Zoom in"], Key::Equal, None),
+    act("zoomout", ["Zoom -", "Zoom -", "Zoom out"], Key::Minus, None),
     act("turnleft", ["Ansicht drehen links", "Tourner la vue \u{85} gauche", "Turn view left"], Key::Comma, None),
     act("turnright", ["Ansicht drehen rechts", "Tourner la vue \u{85} droite", "Turn view right"], Key::Period, None),
     act("lighting", ["Beleuchtung", "Eclairage", "Lighting"], Key::L, None),
@@ -87,6 +92,16 @@ impl Default for Bindings {
             keys: ACTIONS.iter().map(own_key).collect(),
             pads: ACTIONS.iter().map(|a| a.pad).collect(),
         }
+    }
+}
+
+/// The pad button an action had before it was given to another one: the
+/// zoom had the pad's up and down until picking things took them.
+fn old_pad(id: &str) -> Option<Pad> {
+    match id {
+        "zoomin" => Some(Pad::Up),
+        "zoomout" => Some(Pad::Down),
+        _ => None,
     }
 }
 
@@ -180,6 +195,8 @@ impl Bindings {
     fn read(&mut self, text: &str) {
         // a file from before the key ring had its key: kicking was on K then
         let before_keyring = !text.lines().any(|l| l.split_once('=').is_some_and(|(n, _)| n.trim() == "keyring"));
+        // which actions the file has a line for (one added since has none)
+        let mut known = vec![false; ACTIONS.len()];
         for line in text.lines() {
             let Some((name, val)) = line.split_once('=') else { continue };
             let (name, val) = (name.trim(), val.trim());
@@ -188,6 +205,7 @@ impl Bindings {
                 None => (name, false),
             };
             let Some(i) = ACTIONS.iter().position(|a| a.id == id) else { continue };
+            known[i] = true;
             if pad {
                 self.pads[i] = pad_by_name(val);
             } else if own_key(&ACTIONS[i]).is_some() {
@@ -202,6 +220,24 @@ impl Bindings {
                 let q_free = !self.keys.contains(&Some(Key::Q));
                 self.keys[kick] = if q_free { Some(Key::Q) } else { None };
                 self.keys[ring] = Some(Key::K);
+            }
+        }
+        // An action added since the file was written keeps its own key and
+        // button only where the file gives them to nothing else: what the
+        // player chose stays. Only the zoom on the pad's up and down (where
+        // it was before picking things took them) gives them up.
+        for i in (0..ACTIONS.len()).filter(|&i| !known[i]) {
+            for j in (0..ACTIONS.len()).filter(|&j| j != i && known[j]) {
+                if self.keys[i].is_some() && self.keys[i] == self.keys[j] {
+                    self.keys[i] = None;
+                }
+                if self.pads[i].is_some() && self.pads[i] == self.pads[j] {
+                    if self.pads[j] == old_pad(ACTIONS[j].id) {
+                        self.pads[j] = None;
+                    } else {
+                        self.pads[i] = None;
+                    }
+                }
             }
         }
         // a key or button twice (a file written by hand): the later one loses it
@@ -332,6 +368,32 @@ mod tests {
         let m = b.key_map();
         assert_eq!(m.get(&Key::Z), Some(&Some(Key::Key1)));
         assert_eq!(m.get(&Key::Key1), Some(&None));
+    }
+
+    #[test]
+    fn old_file_zoom_on_pad() {
+        // a keys.ini from before picking things: the zoom on the pad's up
+        // and down; picking things takes them, the zoom keeps its keys
+        let at = |id: &str| ACTIONS.iter().position(|a| a.id == id).unwrap();
+        let mut b = Bindings::default();
+        b.read("zoomin=Plus\nzoomin.pad=DUp\nzoomout=-\nzoomout.pad=DDown\n");
+        assert_eq!((b.pads[at("prevthing")], b.pads[at("nextthing")]), (Some(Pad::Up), Some(Pad::Down)));
+        assert_eq!((b.pads[at("zoomin")], b.pads[at("zoomout")]), (None, None));
+        assert_eq!((b.keys[at("zoomin")], b.keys[at("zoomout")]), (Some(Key::Equal), Some(Key::Minus)));
+        // the zoom put on other buttons by the player stays there
+        let mut b = Bindings::default();
+        b.read("zoomin.pad=LB\ncombat.pad=\n");
+        assert_eq!(b.pads[at("zoomin")], Some(Pad::LB));
+        // a key or button the player gave something else is not taken by
+        // the new actions: they get none instead
+        let mut b = Bindings::default();
+        b.read("jump=X\nkick.pad=DUp\n");
+        assert_eq!((b.keys[at("jump")], b.keys[at("nextthing")]), (Some(Key::X), None));
+        assert_eq!((b.pads[at("kick")], b.pads[at("prevthing")]), (Some(Pad::Up), None));
+        // a file that knows them is read as it is
+        let mut b = Bindings::default();
+        b.read(&Bindings::default().text());
+        assert_eq!(b, Bindings::default());
     }
 
     #[test]

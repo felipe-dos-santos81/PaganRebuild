@@ -1,0 +1,7 @@
+# Cycle through things (modern controls): at the camp on the docks the keys go round bedroll, flask and basket and back; E uses the one picked, not the nearest
+args: --map 3 --pos 14460,5800,8
+do: t5;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:-1;usenear
+expect: pickthing name: Some("bedroll")
+expect: pickthing name: Some("flask")
+expect: pickthing name: Some("basket")
+expect: usenear: id 20296 shape  185

@@ -1,0 +1,5 @@
+# Cycle through things switched off: the keys pick nothing and E uses the nearest thing, the bedroll
+args: --map 3 --pos 14460,5800,8
+do: option:pick_things,off;t5;pickthing:1;pickthing:1;usenear
+expect: pickthing: nothing
+expect: usenear: id 20295 shape  535

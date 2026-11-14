@@ -144,6 +144,13 @@ impl Game {
         if !self.options.modern_controls {
             return;
         }
+        // the thing picked for "use" (option "cycle through things") says
+        // what it is, also with the names under the pointer switched off
+        if let (Some(id), Some(text)) = (self.ui.picked, self.ui.picked_name.clone()) {
+            if !self.barks.iter().any(|b| b.item == id) {
+                self.barks.push(Bark { pid: 0, item: id, text });
+            }
+        }
         let (Some(id), Some(text)) = (self.ui.hover, self.ui.hover_name.clone()) else { return };
         // (puzzle spots are named even with the names switched off)
         if self.options.hover_names == 0 && self.puzzle_spot(id).is_none() {
@@ -185,6 +192,14 @@ impl Game {
             wanted[index] = it.in_world() && self.noteworthy(it.id);
         }
         self.brighten(surf, &|i| wanted.get(i).copied().unwrap_or(false), 3);
+    }
+
+    /// The thing picked for "use" (option "cycle through things") lights up
+    /// as with the key that shows everything (whether it is still in reach
+    /// is seen to every tick: `picked_in_reach`).
+    pub fn draw_picked(&mut self, surf: &mut Surface) {
+        let Some(index) = self.ui.picked.and_then(|id| self.map().index(id)) else { return };
+        self.brighten(surf, &|i| i == index, 3);
     }
 
     /// Brightens the item under the pointer where it can be seen.

@@ -37,6 +37,12 @@ pub struct Ui {
     pub pointer: Option<(i32, i32)>,
     /// The key is held that lights up everything worth pointing out.
     pub show_all: bool,
+    /// The thing in reach picked with the keys for the next "use" (option
+    /// "cycle through things", controls.rs); it lights up.
+    pub picked: Option<u16>,
+    /// Its name, shown over it: it may stand behind the Avatar or
+    /// something else, where its light is not seen.
+    pub picked_name: Option<String>,
     /// The main menu, the name entry, a movie or the credits.
     pub title: Option<crate::title::Title>,
     /// The large map with the list of places (option "guide", key O).

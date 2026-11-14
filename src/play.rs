@@ -833,6 +833,18 @@ impl Play {
         if modern && window.is_key_pressed(Key::E, KeyRepeat::No) {
             game.use_nearest();
         }
+        // Y and X (pad: up and down): pick the thing in reach E uses
+        // (option "cycle through things"), one step a press
+        if modern && game.options.pick_things {
+            if window.is_key_pressed(Key::Y, KeyRepeat::No) {
+                game.pick_thing(-1);
+                self.dirty = true;
+            }
+            if window.is_key_pressed(Key::X, KeyRepeat::No) {
+                game.pick_thing(1);
+                self.dirty = true;
+            }
+        }
         if window.is_key_pressed(Key::I, KeyRepeat::No) {
             game.open_inventory();
         }
