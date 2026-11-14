@@ -39,6 +39,15 @@ fn lift(v: u32, part: u32) -> u32 {
     (l((v >> 16) & 0xFF) << 16) | (l((v >> 8) & 0xFF) << 8) | l(v & 0xFF)
 }
 
+/// A part of the way towards a colour.
+fn towards(v: u32, to: u32, part: u32) -> u32 {
+    let c = |shift: u32| {
+        let (a, b) = ((v >> shift) & 0xFF, (to >> shift) & 0xFF);
+        if b > a { a + (b - a) / part } else { a - (a - b) / part }
+    };
+    (c(16) << 16) | (c(8) << 8) | c(0)
+}
+
 impl Game {
     /// Called by the script machine for every engine function while a
     /// look script runs on the side. Some(result) takes the call over.
@@ -200,6 +209,19 @@ impl Game {
     /// is seen to every tick: `picked_in_reach`).
     pub fn draw_picked(&mut self, surf: &mut Surface) {
         let Some(index) = self.ui.picked.and_then(|id| self.map().index(id)) else { return };
+        if self.ui.targeting.is_some() {
+            // a target for something used: it glows red, like the frame in
+            // a window
+            let ids = self.drawn_ids();
+            if ids.len() == surf.pixels.len() {
+                for (px, &v) in surf.pixels.iter_mut().zip(ids) {
+                    if v != 0 && v as usize - 1 == index {
+                        *px = towards(*px, crate::windowpick::TARGET_FRAME, 2);
+                    }
+                }
+            }
+            return;
+        }
         self.brighten(surf, &|i| i == index, 3);
     }
 

@@ -194,11 +194,21 @@ impl Game {
     /// carried is taken into the backpack. Without one picked, the usable
     /// thing closest to the Avatar, in front of him rather than behind.
     pub fn use_nearest(&mut self) -> Option<u16> {
+        // the game asks for a target (a key, oil, a spell): "use" answers
+        // with the thing picked (option "cycle through things")
+        if self.ui.targeting.is_some() {
+            let id = self.window_picked().or_else(|| self.picked_in_reach())?;
+            self.ui.picked = None;
+            self.ui.window_picked = None;
+            self.target_picked(id);
+            return Some(id);
+        }
         if !self.player_may_order() {
             return None;
         }
-        // a thing picked in an open container's window comes first; the
-        // pick stays on it (a bag opens, a potion is drunk and gone)
+        // a thing picked in an open container's window (picked last: the
+        // two picks never stand at once); the pick stays on it (a bag
+        // opens, a potion is drunk and gone)
         if let Some(id) = self.window_picked() {
             self.interact(id, true);
             return Some(id);
@@ -224,13 +234,17 @@ impl Game {
     /// (`step` 1) or the one before (-1), going round the Avatar clockwise
     /// as they lie on the screen: what can be used or taken (what the key
     /// that shows everything lights up). The first press picks the closest.
-    /// None if there is nothing in reach.
+    /// None if there is nothing in reach. While the game asks for a
+    /// target, the people and creatures in view are among them too, near
+    /// or far (a spell's target).
     pub fn pick_thing(&mut self, step: i32) -> Option<u16> {
-        if !self.options.pick_things || !self.player_may_order() {
+        if !self.options.pick_things || !(self.player_may_order() || self.ui.targeting.is_some()) {
             self.ui.picked = None;
             return None;
         }
-        let near = self.in_reach(true);
+        // the pick in a window gives way: the last one picked counts
+        self.ui.window_picked = None;
+        let near = self.pick_candidates();
         let Some(&closest) = near.first() else {
             self.ui.picked = None;
             return None;
@@ -263,10 +277,49 @@ impl Game {
     /// let go once he has moved away from it (seen to every tick).
     pub fn picked_in_reach(&mut self) -> Option<u16> {
         let id = self.ui.picked?;
-        if !self.options.pick_things || !self.in_reach(true).contains(&id) {
+        if !self.options.pick_things || !self.pick_candidates().contains(&id) {
             self.ui.picked = None;
         }
         self.ui.picked
+    }
+
+    /// What can be picked in the world: the things in reach that can be
+    /// used or taken; while the game asks for a target also the living
+    /// people and creatures in view.
+    fn pick_candidates(&mut self) -> Vec<u16> {
+        let mut near = self.in_reach(true);
+        if self.ui.targeting.is_some() {
+            let (w, h) = self.view.size;
+            let people: Vec<crate::map::Item> = self
+                .map()
+                .items
+                .iter()
+                .filter(|it| it.is_actor() && it.id != AVATAR && !it.dead && !it.gone && it.in_world())
+                .copied()
+                .collect();
+            for it in people {
+                let (sx, sy) = self.to_screen(it.x, it.y, it.z);
+                if sx >= 0 && sy >= 0 && sx < w && sy < h && !near.contains(&it.id) {
+                    near.push(it.id);
+                }
+            }
+        }
+        near
+    }
+
+    /// Option "cycle through things", the pad's attack button with the
+    /// weapon away: the thing picked in the world goes into the backpack
+    /// (as with the right button: weight and room checked, what belongs to
+    /// others counts as stolen). False if nothing is picked or it cannot be
+    /// taken (the player is told why where there is a reason).
+    pub fn take_picked(&mut self) -> bool {
+        let Some(id) = self.picked_in_reach() else { return false };
+        self.cancel_approach();
+        let taken = self.take_into_backpack(id) == Some(true);
+        if taken {
+            self.ui.picked = None;
+        }
+        taken
     }
 
     /// The usable things (`carry`: and those that can be taken) the Avatar

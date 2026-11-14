@@ -62,6 +62,10 @@ impl Game {
         }
         let pid = self.add_native(Kind::Ask, 0, 0);
         self.ui.targeting = Some(pid);
+        // (option "cycle through things": the target is picked anew, not
+        // the thing just used)
+        self.ui.picked = None;
+        self.ui.window_picked = None;
         pid as u32
     }
 

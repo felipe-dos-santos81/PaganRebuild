@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 13] = [
+const COMMANDS: [(&str, super::Group); 14] = [
     ("walkturns", cmd_walkturns),
     ("ledges", cmd_ledges),
     ("climbwalk", cmd_climbwalk),
@@ -22,6 +22,7 @@ const COMMANDS: [(&str, super::Group); 13] = [
     ("pickthing", cmd_pickthing),
     ("pickwin", cmd_pickwin),
     ("carry", cmd_carry),
+    ("takething", cmd_takething),
     ("follow", cmd_follow),
     ("jump", cmd_jump),
 ];
@@ -180,6 +181,18 @@ fn cmd_carry(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st:
     println!("carry: {moved}, now {}", it.map(|it| game.describe(&it)).unwrap_or("nothing picked".into()));
     if let Some((text, _)) = &game.ui.notice {
         println!("carry notice: {text}");
+    }
+    Ok(Flow::Done)
+}
+
+/// takething  the thing picked in the world into the backpack (the pad's
+/// attack button with the weapon away)
+fn cmd_takething(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
+    let id = game.ui.picked;
+    let taken = game.take_picked();
+    println!("takething: {taken}, {}", id.and_then(|id| game.map().get(id).copied()).map(|it| game.describe(&it)).unwrap_or("nothing picked".into()));
+    if let Some((text, _)) = &game.ui.notice {
+        println!("takething notice: {text}");
     }
     Ok(Flow::Done)
 }

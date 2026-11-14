@@ -785,22 +785,35 @@ impl Play {
                 }
             }
         }
-        // A container open (option "cycle through things"): the pad's
-        // buttons for kicking and closing windows go through the things in
-        // the open windows, jumping closes them, attacking moves the thing
-        // picked between the backpack and the other container. Only presses
-        // of the pad: the keyboard keeps its keys (it has the mouse).
-        let pad_windows = modern && game.options.pick_things && game.item_windows_open() && game.player_in_control();
-        let pad = |k: Key| pad_windows && window.pad_holds(k) && window.is_key_pressed(k, KeyRepeat::No);
-        let (win_back, win_next, win_close, win_carry) = (pad(Key::Q), pad(Key::C), pad(Key::J), pad(Key::F));
+        // Option "cycle through things", the pad (only its presses: the
+        // keyboard keeps its keys, it has the mouse). With a container open
+        // the buttons for kicking and closing windows go through the things
+        // in the open windows, and jumping closes them. With the weapon away
+        // and something picked, attacking takes it: from a window it moves
+        // between the backpack and the other container, from the world into
+        // the backpack. While the game asks for a target (something used on
+        // something else), jumping cancels that instead.
+        let picking = modern && game.options.pick_things;
+        let targeting = game.ui.targeting.is_some();
+        let pad_windows = picking && game.item_windows_open() && (game.player_in_control() || targeting);
+        let something_picked = game.ui.picked.is_some() || game.ui.window_picked.is_some();
+        let fighting = game.fighting();
+        let pad = |k: Key| window.pad_holds(k) && window.is_key_pressed(k, KeyRepeat::No);
+        let (win_back, win_next) = (pad_windows && pad(Key::Q), pad_windows && pad(Key::C));
+        let cancel_target = picking && targeting && pad(Key::J);
+        let win_close = !cancel_target && pad_windows && pad(Key::J);
+        let take = picking && !targeting && !fighting && (pad_windows || something_picked) && pad(Key::F);
         if win_back || win_next {
             game.pick_in_window(if win_back { -1 } else { 1 });
+        }
+        if cancel_target {
+            game.target_picked(0);
         }
         if win_close {
             game.close_all_gumps();
         }
-        if win_carry {
-            game.carry_picked();
+        if take && !game.carry_picked() {
+            game.take_picked();
         }
         // reading: any click or space turns the page
         // (walking with the keys or the stick, and with the pad's jump
@@ -824,13 +837,13 @@ impl Play {
                 game.jump(pointer, w, h);
             }
         }
-        if window.is_key_pressed(Key::J, KeyRepeat::No) && !win_close {
+        if window.is_key_pressed(Key::J, KeyRepeat::No) && !win_close && !cancel_target {
             game.jump(pointer, w, h);
         }
         if window.is_key_pressed(Key::Tab, KeyRepeat::No) {
             game.toggle_combat();
         }
-        if window.is_key_pressed(Key::F, KeyRepeat::No) && !win_carry {
+        if window.is_key_pressed(Key::F, KeyRepeat::No) && !take {
             // at the nearest enemy; held down, the Avatar keeps striking
             game.attack_nearest();
             self.attack_key_held = true;

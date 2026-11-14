@@ -9,8 +9,10 @@
 use crate::game::{Game, AVATAR};
 use crate::view::Surface;
 
-/// The frame around the thing picked: the gold of the menu's studs.
+/// The frame around the thing picked: the gold of the menu's studs; red
+/// while the game asks for a target (something used on something else).
 const FRAME: u32 = 0xFFE070;
+pub const TARGET_FRAME: u32 = 0xFF5030;
 
 impl Game {
     /// Is a container's window open (not just the Avatar's own window)?
@@ -56,6 +58,8 @@ impl Game {
             self.ui.window_picked = None;
             return None;
         }
+        // the pick in the world gives way: the last one picked counts
+        self.ui.picked = None;
         let things = self.window_things();
         if things.is_empty() {
             self.ui.window_picked = None;
@@ -146,13 +150,14 @@ impl Game {
             Some((x - 2, y - 2, x + f.2 + 1, y + f.3 + 1))
         };
         let Some((x0, y0, x1, y1)) = rect else { return };
+        let c = if self.ui.targeting.is_some() { TARGET_FRAME } else { FRAME };
         for x in x0..=x1 {
-            surf.put(x, y0, FRAME);
-            surf.put(x, y1, FRAME);
+            surf.put(x, y0, c);
+            surf.put(x, y1, c);
         }
         for y in y0..=y1 {
-            surf.put(x0, y, FRAME);
-            surf.put(x1, y, FRAME);
+            surf.put(x0, y, c);
+            surf.put(x1, y, c);
         }
     }
 }
