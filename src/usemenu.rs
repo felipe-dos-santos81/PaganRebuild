@@ -73,8 +73,16 @@ impl Game {
         let in_window = self.ui.window_picked == Some(id);
         // a walk the player sent him on ends here
         self.cancel_approach();
+        let in_world = self.map().get(id).is_some_and(|it| it.in_world());
         let done = if m.sel == 0 {
-            self.interact(id, true);
+            // (in the world it may lie further than "use" reaches - on a
+            // table the hand reaches: he steps up to it first, as after a
+            // click)
+            if in_world {
+                self.use_or_approach(id);
+            } else {
+                self.interact(id, true);
+            }
             true
         } else {
             self.take_into_backpack(id) == Some(true)

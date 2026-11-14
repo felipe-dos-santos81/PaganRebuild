@@ -355,7 +355,11 @@ impl Game {
                 continue;
             }
             let gap = self.box_gap(&avatar, &it);
-            if gap > REACH - 16 || !(self.usable(it.id) || (carry && self.portable(it.id))) {
+            // to use, as close as "use" has always wanted; to take, as far
+            // as the mouse may pick it up (things on a table or a counter
+            // the hand reaches were left out)
+            let to_use = gap <= REACH - 16 && self.usable(it.id);
+            if !to_use && !(carry && self.can_drag(it.id)) {
                 continue;
             }
             let (cx, cy) = centre(self, &it);
