@@ -1,0 +1,8 @@
+# Up and down with a thing picked in a window: a row down or up among the barrel's loose things (map 4), round at the end, no row skipped
+args: --map 4 --pos 10624,10060,48
+do: t5;operate:36462;t10;pickwin:1;pickrow:1;pickrow:1;pickrow:1;pickrow:-1;pickrow:-1;pickrow:-1
+expect: pickwin: id 36467
+expect: pickrow: true id 36466 shape  181
+expect: pickrow: true id 36464 shape  830
+expect: pickrow: true id 36465 shape  471
+expect: pickrow: true id 36463 shape  579

@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 14] = [
+const COMMANDS: [(&str, super::Group); 15] = [
     ("walkturns", cmd_walkturns),
     ("ledges", cmd_ledges),
     ("climbwalk", cmd_climbwalk),
@@ -23,6 +23,7 @@ const COMMANDS: [(&str, super::Group); 14] = [
     ("pickwin", cmd_pickwin),
     ("carry", cmd_carry),
     ("takething", cmd_takething),
+    ("pickrow", cmd_pickrow),
     ("follow", cmd_follow),
     ("jump", cmd_jump),
 ];
@@ -170,6 +171,18 @@ fn cmd_pickwin(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st:
     let picked = game.pick_in_window(step);
     let page = game.backpack().map(|p| game.shown_page(p)).unwrap_or(0);
     println!("pickwin: {} name {:?} page {page}", picked.and_then(|id| game.map().get(id).map(|it| game.describe(it))).unwrap_or("nothing".into()), game.ui.window_picked_name.as_deref().filter(|_| picked.is_some()));
+    Ok(Flow::Done)
+}
+
+/// pickrow:<1|-1>  the pick in a window a row down (up), as with the pad's
+/// down and up while something is picked in a window
+fn cmd_pickrow(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let step = number(arg, cmd)?;
+    game.draw(surf, opts, false);
+    let moved = game.pick_in_window_row(step);
+    let picked = game.ui.window_picked;
+    let page = game.backpack().map(|p| game.shown_page(p)).unwrap_or(0);
+    println!("pickrow: {moved} {} name {:?} page {page}", picked.and_then(|id| game.map().get(id).map(|it| game.describe(it))).unwrap_or("nothing".into()), game.ui.window_picked_name.as_deref().filter(|_| picked.is_some()));
     Ok(Flow::Done)
 }
 

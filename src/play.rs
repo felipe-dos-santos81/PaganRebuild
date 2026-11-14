@@ -864,15 +864,16 @@ impl Play {
             game.use_nearest();
         }
         // Y and X (pad: up and down): pick the thing in reach E uses
-        // (option "cycle through things"), one step a press
+        // (option "cycle through things"), one step a press; with a thing
+        // picked in a container's window, a row up or down in it instead
         if modern && game.options.pick_things {
-            if window.is_key_pressed(Key::Y, KeyRepeat::No) {
-                game.pick_thing(-1);
-                self.dirty = true;
-            }
-            if window.is_key_pressed(Key::X, KeyRepeat::No) {
-                game.pick_thing(1);
-                self.dirty = true;
+            for (key, step) in [(Key::Y, -1), (Key::X, 1)] {
+                if window.is_key_pressed(key, KeyRepeat::No) {
+                    if !(game.ui.window_picked.is_some() && game.pick_in_window_row(step)) {
+                        game.pick_thing(step);
+                    }
+                    self.dirty = true;
+                }
             }
         }
         if window.is_key_pressed(Key::I, KeyRepeat::No) {

@@ -27,8 +27,8 @@ const MONEY_SLOT: usize = 0;
 /// files have their nesting depth there, a small number).
 const SLOT_MARK: i32 = 0x10000;
 
-const COLS: usize = 6;
-const ROWS: usize = 4;
+pub const COLS: usize = 6;
+pub const ROWS: usize = 4;
 pub const PER_PAGE: usize = COLS * ROWS;
 
 /// The bottom row of the first page is kept for the potions with quick

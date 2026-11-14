@@ -87,6 +87,68 @@ impl Game {
         Some(id)
     }
 
+    /// Moves the pick in its window a row up (`step` -1) or down (1): in the
+    /// backpack's slots the slot above or below, else the nearest thing in
+    /// the next row with something in it, as close to the same column as
+    /// can be; the pages turn along. Elsewhere the next thing above or
+    /// below. At the top or bottom it goes round to the other end of the
+    /// window. False if nothing is picked in a window.
+    pub fn pick_in_window_row(&mut self, step: i32) -> bool {
+        let Some(id) = self.window_picked() else { return false };
+        let Some(owner) = self.map().get(id).map(|it| it.parent) else { return false };
+        // every thing of the window with its row and column
+        let cells: Vec<(i32, i32, u16)> = if self.grid_window(owner) {
+            use crate::inventory::{COLS, PER_PAGE, ROWS};
+            self.grid_layout(owner)
+                .into_iter()
+                .map(|(s, t)| (((s / PER_PAGE) * ROWS + (s % PER_PAGE) / COLS) as i32, (s % COLS) as i32, t))
+                .collect()
+        } else {
+            // things lying about: their place in the window (pixels); one
+            // a few pixels higher or lower than the one before it is still
+            // in the same row
+            const SAME_ROW: i32 = 2;
+            let mut things: Vec<(i32, i32, u16)> = self
+                .map()
+                .items
+                .iter()
+                .filter(|it| !it.gone && it.parent == owner && it.id != 0)
+                .filter(|it| !self.data.infos.get(it.shape as usize).is_some_and(|si| si.editor))
+                .map(|it| ((it.y >> 8) & 0xFF, it.y & 0xFF, it.id))
+                .collect();
+            things.sort();
+            let (mut row, mut last) = (0, None);
+            things
+                .into_iter()
+                .map(|(y, x, t)| {
+                    if last.is_some_and(|l| y - l > SAME_ROW) {
+                        row += 1;
+                    }
+                    last = Some(y);
+                    (row, x, t)
+                })
+                .collect()
+        };
+        let Some(&(row, col, _)) = cells.iter().find(|c| c.2 == id) else { return false };
+        // the nearest row in that direction with something in it, else
+        // round to the farthest one the other way
+        let ahead = |r: i32| if step < 0 { r < row } else { r > row };
+        let target_row = cells
+            .iter()
+            .map(|c| c.0)
+            .filter(|&r| ahead(r))
+            .min_by_key(|&r| (r - row).abs())
+            .or_else(|| cells.iter().map(|c| c.0).filter(|&r| r != row).max_by_key(|&r| (r - row).abs()));
+        let Some(target_row) = target_row else { return false };
+        let Some(&(_, _, next)) = cells.iter().filter(|c| c.0 == target_row).min_by_key(|c| ((c.1 - col).abs(), c.1)) else { return false };
+        if next != id {
+            self.ui.window_picked_name = self.look_name(next).or_else(|| self.unnamed_thing(next));
+        }
+        self.ui.window_picked = Some(next);
+        self.show_page_of(next);
+        true
+    }
+
     /// The thing picked in a window, while it is still in an open one.
     pub fn window_picked(&mut self) -> Option<u16> {
         let id = self.ui.window_picked?;
