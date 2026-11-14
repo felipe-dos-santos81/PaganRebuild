@@ -9,6 +9,16 @@
 use crate::game::{Game, AVATAR};
 use crate::view::Surface;
 
+/// The row of a slot of the backpack's slot window on its page.
+fn grid_row(slot: usize) -> usize {
+    (slot % crate::inventory::PER_PAGE) / crate::inventory::COLS
+}
+
+/// The column of a slot counted over all pages laid side by side.
+fn grid_column(slot: usize) -> usize {
+    (slot / crate::inventory::PER_PAGE) * crate::inventory::COLS + slot % crate::inventory::COLS
+}
+
 /// The frame around the thing picked: the gold of the menu's studs; red
 /// while the game asks for a target (something used on something else).
 const FRAME: u32 = 0xFFE070;
@@ -23,8 +33,9 @@ impl Game {
     /// The things in the open windows in the order they are gone through:
     /// window by window as they lie on the screen, from the left (not by
     /// which is in front: the window of the thing picked comes to the
-    /// front); in the backpack's slot window slot by slot (a pile once),
-    /// elsewhere row by row from the top left.
+    /// front); in the backpack's slot window along the rows as if its pages
+    /// lay side by side (from the end of a row on one page to the same row
+    /// on the next; a pile once), elsewhere row by row from the top left.
     fn window_things(&mut self) -> Vec<u16> {
         let mut windows: Vec<(i32, i32, u16)> = self.ui.gumps.iter().filter(|g| g.owner != AVATAR).map(|g| (g.x, g.y, g.owner)).collect();
         windows.sort();
@@ -32,7 +43,9 @@ impl Game {
         let mut all = Vec::new();
         for owner in owners {
             if self.grid_window(owner) {
-                all.extend(self.grid_layout(owner).into_iter().map(|(_, id)| id));
+                let mut slots: Vec<(usize, usize, u16)> = self.grid_layout(owner).into_iter().map(|(s, id)| (grid_row(s), grid_column(s), id)).collect();
+                slots.sort();
+                all.extend(slots.into_iter().map(|s| s.2));
                 continue;
             }
             let mut things: Vec<(i32, i32, u16)> = self
@@ -96,13 +109,10 @@ impl Game {
     pub fn pick_in_window_row(&mut self, step: i32) -> bool {
         let Some(id) = self.window_picked() else { return false };
         let Some(owner) = self.map().get(id).map(|it| it.parent) else { return false };
-        // every thing of the window with its row and column
+        // every thing of the window with its row and column (in the
+        // backpack the pages side by side: up and down stay on the page)
         let cells: Vec<(i32, i32, u16)> = if self.grid_window(owner) {
-            use crate::inventory::{COLS, PER_PAGE, ROWS};
-            self.grid_layout(owner)
-                .into_iter()
-                .map(|(s, t)| (((s / PER_PAGE) * ROWS + (s % PER_PAGE) / COLS) as i32, (s % COLS) as i32, t))
-                .collect()
+            self.grid_layout(owner).into_iter().map(|(s, t)| (grid_row(s) as i32, grid_column(s) as i32, t)).collect()
         } else {
             // things lying about: their place in the window (pixels); one
             // a few pixels higher or lower than the one before it is still
