@@ -34,7 +34,7 @@ const fn act(id: &'static str, names: [&'static str; 3], key: Key, pad: Option<P
     Action { id, names, does: Does::Key(key), pad }
 }
 
-pub const ACTIONS: [Action; 36] = [
+pub const ACTIONS: [Action; 37] = [
     act("up", ["Gehen: hoch", "Marcher: haut", "Walk up"], Key::W, None),
     act("down", ["Gehen: runter", "Marcher: bas", "Walk down"], Key::S, None),
     act("left", ["Gehen: links", "Marcher: gauche", "Walk left"], Key::A, None),
@@ -55,7 +55,11 @@ pub const ACTIONS: [Action; 36] = [
     act("combat", ["Kampfmodus", "Mode combat", "Combat mode"], Key::Tab, Some(Pad::LB)),
     act("inventory", ["Rucksack", "Sac", "Backpack"], Key::I, Some(Pad::Y)),
     act("close", ["Fenster schlie\u{e1}en", "Fermer les fen\u{88}tres", "Close windows"], Key::C, Some(Pad::Right)),
-    act("menu", ["Men\u{81}", "Menu", "Menu"], Key::V, Some(Pad::Start)),
+    act("menu", ["Men\u{81}", "Menu", "Menu"], Key::V, None),
+    // Start opens the main menu (save, load, options, quit), as on consoles;
+    // on the keyboard that is Esc, which stays Esc (see `fixed_key`). In a
+    // keys.ini from before, Start stays with the options menu.
+    act("mainmenu", ["Hauptmen\u{81}", "Menu principal", "Main menu"], Key::Escape, Some(Pad::Start)),
     act("quicksave", ["Schnell speichern", "Sauvegarde rapide", "Quick save"], Key::F5, None),
     act("quickload", ["Schnell laden", "Chargement rapide", "Quick load"], Key::F9, None),
     act("journal", ["Tagebuch", "Journal", "Journal"], Key::T, Some(Pad::Back)),
@@ -103,6 +107,13 @@ fn old_pad(id: &str) -> Option<Pad> {
         "zoomout" => Some(Pad::Down),
         _ => None,
     }
+}
+
+/// An action whose key on the keyboard cannot be changed: Esc goes back in
+/// every menu and book, it must stay Esc (only the pad's button for it can
+/// be chosen).
+fn fixed_key(a: &Action) -> bool {
+    a.id == "mainmenu"
 }
 
 fn own_key(a: &Action) -> Option<Key> {
@@ -208,7 +219,7 @@ impl Bindings {
             known[i] = true;
             if pad {
                 self.pads[i] = pad_by_name(val);
-            } else if own_key(&ACTIONS[i]).is_some() {
+            } else if own_key(&ACTIONS[i]).is_some() && !fixed_key(&ACTIONS[i]) {
                 self.keys[i] = key_by_name(val).filter(|&k| can_bind(k));
             }
         }
@@ -276,7 +287,7 @@ impl Bindings {
     /// Gives action `i` the key `k`; an action that had it gets the key
     /// `i` had (the two swap).
     pub fn set_key(&mut self, i: usize, k: Option<Key>) {
-        if own_key(&ACTIONS[i]).is_none() {
+        if own_key(&ACTIONS[i]).is_none() || fixed_key(&ACTIONS[i]) {
             return;
         }
         if let Some(j) = (0..ACTIONS.len()).find(|&j| j != i && k.is_some() && self.keys[j] == k) {
@@ -316,6 +327,11 @@ impl Bindings {
     pub fn potion_key(&self, n: usize) -> Option<Key> {
         let id = ["potion1", "potion2", "potion3", "potion4", "potion5"].get(n)?;
         self.keys[ACTIONS.iter().position(|a| a.id == *id)?]
+    }
+
+    /// The pad's button the action `id` has, if any.
+    pub fn pad_of(&self, id: &str) -> Option<Pad> {
+        self.pads[ACTIONS.iter().position(|a| a.id == id)?]
     }
 
     /// What the pad's button does in the game, if anything.
@@ -394,6 +410,26 @@ mod tests {
         let mut b = Bindings::default();
         b.read(&Bindings::default().text());
         assert_eq!(b, Bindings::default());
+    }
+
+    #[test]
+    fn start_opens_the_main_menu() {
+        let at = |id: &str| ACTIONS.iter().position(|a| a.id == id).unwrap();
+        // new: Start is the main menu (Esc), the options menu has no button
+        let b = Bindings::default();
+        assert_eq!(b.pad_does(Pad::Start), Some(Does::Key(Key::Escape)));
+        assert_eq!(b.pads[at("menu")], None);
+        // a keys.ini from before with Start on the options menu keeps it
+        let mut b = Bindings::default();
+        b.read("menu=V\nmenu.pad=Start\n");
+        assert_eq!(b.pad_does(Pad::Start), Some(Does::Key(Key::V)));
+        assert_eq!(b.pads[at("mainmenu")], None);
+        // Esc stays Esc: neither the file nor the player can move it
+        let mut b = Bindings::default();
+        b.read("mainmenu=Q\n");
+        b.set_key(at("mainmenu"), Some(Key::Z));
+        assert_eq!(b.keys[at("mainmenu")], Some(Key::Escape));
+        assert!(b.key_map().is_empty());
     }
 
     #[test]

@@ -215,6 +215,10 @@ pub struct Play {
     pad_stale: Vec<crate::platform::Pad>,
     /// The moment the last picture stood for (see `even_moment`).
     frame_moment: Option<FrameMoment>,
+    /// The pad's button for the journal is held (a shift for zooming), and
+    /// it has zoomed meanwhile (see `pad_pass`).
+    journal_shift_held: bool,
+    journal_shift_used: bool,
 }
 
 impl Play {
@@ -280,6 +284,8 @@ impl Play {
             pad_world: false,
             pad_stale: Vec::new(),
             frame_moment: None,
+            journal_shift_held: false,
+            journal_shift_used: false,
         })
     }
 
@@ -390,7 +396,28 @@ impl Play {
         let mut nav: Option<Key> = None;
         if !game.keys_waiting(true) {
             if world {
-                buttons = pad_in_world(&down, &game.bindings, &mut keys);
+                // The journal's button (Back) held is a shift: with the cross
+                // up and down it zooms. Let go without having zoomed, it
+                // opens the journal (on letting go, not on pressing).
+                use crate::platform::Pad;
+                let journal = game.bindings.pad_of("journal");
+                let shift = journal.is_some_and(down);
+                let plain = |p: Pad| down(p) && Some(p) != journal && !(shift && matches!(p, Pad::Up | Pad::Down));
+                buttons = pad_in_world(&plain, &game.bindings, &mut keys);
+                if shift {
+                    for (p, k) in [(Pad::Up, Key::Equal), (Pad::Down, Key::Minus)] {
+                        if down(p) {
+                            keys.insert(k);
+                            self.journal_shift_used = true;
+                        }
+                    }
+                } else if self.journal_shift_held {
+                    if !self.journal_shift_used {
+                        keys.insert(Key::T);
+                    }
+                    self.journal_shift_used = false;
+                }
+                self.journal_shift_held = shift;
             } else {
                 let back = if reading && !game.reader_browses() { Key::Space } else { Key::Escape };
                 buttons = pad_in_menus(window, &down, reading, back, &mut keys);
