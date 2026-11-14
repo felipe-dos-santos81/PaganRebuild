@@ -1,0 +1,8 @@
+# Cycle through things in a house (map 39): only what is in his own room, not the candlestick, bed and cushion in the room above (hidden from view, but within reach by height)
+args: --map 39 --pos 15434,8146,48
+do: t5;pickthing:1;pickthing:1;pickthing:1;pickthing:1;usenear
+expect: pickthing name: Some("silverware")
+expect: pickthing name: Some("jug")
+reject: candlestick
+reject: Some("bed")
+reject: cushion

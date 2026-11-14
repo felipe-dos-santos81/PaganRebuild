@@ -277,9 +277,13 @@ impl Game {
         };
         let (ax, ay) = centre(self, &avatar);
         let near: Vec<crate::map::Item> = self.map().items_near(avatar.x, avatar.y, 320).into_iter().map(|i| self.map().items[i]).collect();
+        // Under a roof or a floor above, nothing on or above it: that is the
+        // room upstairs, which the view does not show either (a candlestick
+        // and a bed up there were within his reach by height alone).
+        let ceiling = crate::game::roof_above(self.map(), &self.data.infos, &avatar);
         let mut found: Vec<(i32, u16)> = Vec::new();
         for it in near {
-            if it.id == 0 || it.id == AVATAR || !it.in_world() || (it.z - avatar.z).abs() > REACH_HEIGHT {
+            if it.id == 0 || it.id == AVATAR || !it.in_world() || (it.z - avatar.z).abs() > REACH_HEIGHT || ceiling.is_some_and(|c| it.z >= c) {
                 continue;
             }
             let gap = self.box_gap(&avatar, &it);
