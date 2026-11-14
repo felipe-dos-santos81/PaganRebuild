@@ -442,6 +442,7 @@ impl Game {
         self.view.lerps.clear();
         self.ui.picked = None;
         self.ui.window_picked = None;
+        self.ui.use_menu = None;
         self.view.outline = Default::default();
         self.view.cam_smooth = None;
         self.view.painted.clear();

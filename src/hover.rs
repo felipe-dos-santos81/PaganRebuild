@@ -157,6 +157,10 @@ impl Game {
         // what it is, also with the names under the pointer switched off
         for (id, text) in [(self.ui.picked, self.ui.picked_name.clone()), (self.ui.window_picked, self.ui.window_picked_name.clone())] {
             let (Some(id), Some(text)) = (id, text) else { continue };
+            // (the menu "use or take" shows the name itself)
+            if self.ui.use_menu.as_ref().is_some_and(|m| m.item == id) {
+                continue;
+            }
             if !self.barks.iter().any(|b| b.item == id) {
                 self.barks.push(Bark { pid: 0, item: id, text });
             }

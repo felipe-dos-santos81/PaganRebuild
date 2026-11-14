@@ -333,6 +333,7 @@ impl Game {
             self.view.lerps.clear();
             self.ui.picked = None;
             self.ui.window_picked = None;
+            self.ui.use_menu = None;
             self.cache_in();
             if let Err(err) = self.save_to_in_background(crate::savegame::AUTO_SLOT) {
                 eprintln!("autosave: {err}");

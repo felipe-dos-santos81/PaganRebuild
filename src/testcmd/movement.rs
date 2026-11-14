@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 15] = [
+const COMMANDS: [(&str, super::Group); 16] = [
     ("walkturns", cmd_walkturns),
     ("ledges", cmd_ledges),
     ("climbwalk", cmd_climbwalk),
@@ -24,6 +24,7 @@ const COMMANDS: [(&str, super::Group); 15] = [
     ("carry", cmd_carry),
     ("takething", cmd_takething),
     ("pickrow", cmd_pickrow),
+    ("usemenu", cmd_usemenu),
     ("follow", cmd_follow),
     ("jump", cmd_jump),
 ];
@@ -216,6 +217,29 @@ fn cmd_usenear(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
     // what the player is told (too heavy, no room ...)
     if let Some((text, _)) = &game.ui.notice {
         println!("usenear notice: {text}");
+    }
+    // a thing that can be used and taken asks first
+    if game.ui.use_menu.is_some() {
+        println!("usenear: use or take?");
+    }
+    Ok(Flow::Done)
+}
+
+/// usemenu:<0|1>  in the menu "use or take" the line (0 use, 1 take) is
+/// chosen and confirmed, as with the pad's down and A
+fn cmd_usemenu(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let line = number(arg, cmd)?;
+    let Some(id) = game.ui.use_menu.as_ref().map(|m| m.item) else {
+        println!("usemenu: no menu");
+        return Ok(Flow::Done);
+    };
+    if line == 1 {
+        game.use_menu_key(1);
+    }
+    game.use_menu_confirm();
+    println!("usemenu: {}", game.map().get(id).map(|it| game.describe(it)).unwrap_or_default());
+    if let Some((text, _)) = &game.ui.notice {
+        println!("usemenu notice: {text}");
     }
     Ok(Flow::Done)
 }

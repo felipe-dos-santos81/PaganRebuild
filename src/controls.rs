@@ -210,11 +210,22 @@ impl Game {
         // two picks never stand at once); the pick stays on it (a bag
         // opens, a potion is drunk and gone)
         if let Some(id) = self.window_picked() {
-            self.interact(id, true);
+            // a thing that can be used and taken asks which is meant
+            if self.asks_use_or_take(id) {
+                self.open_use_menu(id);
+            } else {
+                self.interact(id, true);
+            }
             return Some(id);
         }
         let picked = self.ui.picked.take();
         if let Some(id) = picked.filter(|&id| self.in_reach(true).contains(&id)) {
+            if self.asks_use_or_take(id) {
+                // (the pick stays until the menu has done its part)
+                self.ui.picked = Some(id);
+                self.open_use_menu(id);
+                return Some(id);
+            }
             // a walk the player sent him on ends here
             self.cancel_approach();
             if self.usable(id) {

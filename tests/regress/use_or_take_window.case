@@ -1,0 +1,7 @@
+# "Use or take" in a container's window: the flask of oil in the barrel by the hut on map 4 is taken into the backpack
+args: --map 4 --pos 10624,10060,48
+do: t5;operate:36462;t10;pickwin:1;pickwin:1;usenear;usemenu:1
+expect: usenear: use or take?
+expect: usemenu: id 36463 shape  579
+expect: parent 36733
+reject: usemenu notice:

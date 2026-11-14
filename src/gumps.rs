@@ -168,7 +168,7 @@ impl Game {
     /// Where something said by a thing in a container shows: over the
     /// window of its container, else of a container further out, else
     /// over whoever carries it or the container in the world.
-    fn window_bark_place(&mut self, it: Item) -> Option<(i32, i32)> {
+    pub(crate) fn window_bark_place(&mut self, it: Item) -> Option<(i32, i32)> {
         let mut cur = it;
         for _ in 0..8 {
             if let Some(gi) = self.ui.gumps.iter().rposition(|g| g.owner == cur.parent) {

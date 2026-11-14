@@ -75,6 +75,7 @@ mod vitals;
 mod turnview;
 mod inventory;
 mod windowpick;
+mod usemenu;
 mod minimap;
 mod guide;
 mod hash;

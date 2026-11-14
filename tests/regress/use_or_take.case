@@ -1,0 +1,7 @@
+# A thing that can be used and taken asks which is meant ("use or take"): the flask at the camp on the docks goes into the backpack with "take", the oil in the barrel on map 4 likewise from its window
+args: --map 3 --pos 14460,5800,8
+do: t5;pickthing:1;pickthing:1;usenear;usemenu:1;item:20301
+expect: usenear: use or take?
+expect: usemenu: id 20301 shape  228
+expect: parent 20310
+reject: usemenu notice:

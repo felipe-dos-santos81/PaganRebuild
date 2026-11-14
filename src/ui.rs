@@ -47,6 +47,9 @@ pub struct Ui {
     /// and its name.
     pub window_picked: Option<u16>,
     pub window_picked_name: Option<String>,
+    /// The small menu "use or take" for a thing that can be both
+    /// (usemenu.rs), while it is open.
+    pub use_menu: Option<crate::usemenu::UseMenu>,
     /// The main menu, the name entry, a movie or the credits.
     pub title: Option<crate::title::Title>,
     /// The large map with the list of places (option "guide", key O).

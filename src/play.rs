@@ -324,6 +324,10 @@ impl Play {
             self.worldmap_pass(left_edges)?;
             return Ok(Pass::Done);
         }
+        if self.game.ui.use_menu.is_some() {
+            self.use_menu_pass(left_edges)?;
+            return Ok(Pass::Done);
+        }
 
         // the optional modern controls (see controls.rs)
         let modern = self.game.options.modern_controls;
@@ -346,7 +350,10 @@ impl Play {
         let (window, game) = (&mut self.window, &self.game);
         let ui = &game.ui;
         let reading = ui.reader.is_some();
-        let world = ui.title.is_none() && ui.menu.is_none() && ui.slot_menu.is_none() && ui.slider.is_none() && !reading && game.ask.is_none();
+        // (the large map and the small menu "use or take" count as menus:
+        // the cross moves in them, A confirms, B goes back)
+        let world = ui.title.is_none() && ui.menu.is_none() && ui.slot_menu.is_none() && ui.slider.is_none() && !reading && game.ask.is_none()
+            && ui.worldmap.is_none() && ui.use_menu.is_none();
         // keys chosen by the player count in the world only (menus keep theirs)
         let map = if world { game.bindings.key_map() } else { Default::default() };
         if map != self.key_map {
@@ -429,7 +436,9 @@ impl Play {
     fn escape(&mut self, esc: bool) -> Pass {
         let game = &mut self.game;
         if esc && !self.esc_was_down {
-            if game.ui.slot_menu.is_some() {
+            if game.ui.use_menu.is_some() {
+                game.close_use_menu();
+            } else if game.ui.slot_menu.is_some() {
                 // handled with the book
             } else if game.reader_browses() {
                 game.close_reader();
@@ -641,6 +650,35 @@ impl Play {
         self.show_still()
     }
 
+    /// The small menu "use or take" (usemenu.rs) takes all input; the game
+    /// stands still. Up and down choose, Enter or E confirms (the pad: A),
+    /// a click takes a line; Esc closes it (see `escape`).
+    fn use_menu_pass(&mut self, left_edges: platform::Edges) -> Result<(), Box<dyn Error>> {
+        let (window, game) = (&self.window, &mut self.game);
+        let (w, h) = (self.surf.width, self.surf.height);
+        for (key, dy) in [(Key::Up, -1), (Key::Down, 1), (Key::Y, -1), (Key::X, 1)] {
+            if window.is_key_pressed(key, KeyRepeat::Yes) {
+                game.use_menu_key(dy);
+            }
+        }
+        if [Key::Enter, Key::E, Key::Space].into_iter().any(|k| window.is_key_pressed(k, KeyRepeat::No)) {
+            game.use_menu_confirm();
+        }
+        let down = window.get_mouse_down(MouseButton::Left);
+        if left_edges.pressed || (down && !self.left_was_down) {
+            if let Some((x, y)) = mouse_pos(window, MouseMode::Clamp) {
+                game.use_menu_click(x as i32, y as i32, w, h);
+            }
+        }
+        // the click was the menu's: the world must not take it for a new one
+        self.left_was_down = down;
+        if game.ui.use_menu.is_none() && down {
+            self.left_swallowed = true;
+        }
+        self.dirty = true;
+        self.show_still()
+    }
+
     /// The large map takes all input; the game stands still.
     fn worldmap_pass(&mut self, left_edges: platform::Edges) -> Result<(), Box<dyn Error>> {
         let (window, game) = (&self.window, &mut self.game);
@@ -653,10 +691,11 @@ impl Play {
                 game.worldmap_key(dx, dy, 0);
             }
         }
-        if window.is_key_pressed(Key::Equal, KeyRepeat::Yes) || window.is_key_pressed(Key::NumPadPlus, KeyRepeat::Yes) {
+        // (page up / down: the pad's shoulder buttons)
+        if [Key::Equal, Key::NumPadPlus, Key::PageUp].into_iter().any(|k| window.is_key_pressed(k, KeyRepeat::Yes)) {
             game.worldmap_key(0, 0, -1);
         }
-        if window.is_key_pressed(Key::Minus, KeyRepeat::Yes) || window.is_key_pressed(Key::NumPadMinus, KeyRepeat::Yes) {
+        if [Key::Minus, Key::NumPadMinus, Key::PageDown].into_iter().any(|k| window.is_key_pressed(k, KeyRepeat::Yes)) {
             game.worldmap_key(0, 0, 1);
         }
         if window.is_key_pressed(Key::Delete, KeyRepeat::No) {
@@ -861,7 +900,13 @@ impl Play {
         }
         game.avatar_block(window.is_key_down(Key::B));
         if modern && window.is_key_pressed(Key::E, KeyRepeat::No) {
-            game.use_nearest();
+            if !game.player_may_order() && game.ui.targeting.is_none() {
+                // a scene is playing: on to its next line, as with a click
+                // or space (the pad's A arrives as E)
+                game.skip_barks();
+            } else {
+                game.use_nearest();
+            }
         }
         // Y and X (pad: up and down): pick the thing in reach E uses
         // (option "cycle through things"), one step a press; with a thing

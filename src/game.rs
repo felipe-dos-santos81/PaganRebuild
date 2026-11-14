@@ -1113,6 +1113,7 @@ impl Game {
         if !self.screen.inverted {
             self.draw_avatar_words(surf);
         }
+        self.draw_use_menu(surf);
         self.end_hover_label();
         self.draw_drag(surf);
         self.draw_reader(surf);
