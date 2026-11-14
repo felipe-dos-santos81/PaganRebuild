@@ -1,6 +1,0 @@
-# A thing picked in the world goes into the backpack with the pad's attack button (weapon away): the tableware on the table in the hut on map 4
-args: --map 4 --pos 10668,10060,48
-do: t5;pickthing:1;pickthing:1;takething;item:36460
-expect: takething: true
-expect: id 36733 shape  529
-reject: takething notice:

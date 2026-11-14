@@ -210,9 +210,12 @@ impl Game {
         // two picks never stand at once); the pick stays on it (a bag
         // opens, a potion is drunk and gone)
         if let Some(id) = self.window_picked() {
-            // a thing that can be used and taken asks which is meant
+            // a thing that can be used and taken asks which is meant; one
+            // that can only be taken (from another container) is taken
             if self.asks_use_or_take(id) {
                 self.open_use_menu(id);
+            } else if !self.usable(id) && self.root_container(id) != AVATAR && self.portable(id) {
+                self.take_into_backpack(id);
             } else {
                 self.interact(id, true);
             }
@@ -236,6 +239,15 @@ impl Game {
             return Some(id);
         }
         let id = self.in_reach(false).first().copied()?;
+        // the nearest asks as well when it can be used and taken (a flask
+        // on the ground): it is picked, so that it lights up and the menu
+        // shows its name
+        if self.asks_use_or_take(id) {
+            self.ui.picked_name = self.look_name(id).or_else(|| self.unnamed_thing(id));
+            self.ui.picked = Some(id);
+            self.open_use_menu(id);
+            return Some(id);
+        }
         self.cancel_approach();
         self.interact(id, true);
         Some(id)
@@ -318,20 +330,6 @@ impl Game {
         near
     }
 
-    /// Option "cycle through things", the pad's attack button with the
-    /// weapon away: the thing picked in the world goes into the backpack
-    /// (as with the right button: weight and room checked, what belongs to
-    /// others counts as stolen). False if nothing is picked or it cannot be
-    /// taken (the player is told why where there is a reason).
-    pub fn take_picked(&mut self) -> bool {
-        let Some(id) = self.picked_in_reach() else { return false };
-        self.cancel_approach();
-        let taken = self.take_into_backpack(id) == Some(true);
-        if taken {
-            self.ui.picked = None;
-        }
-        taken
-    }
 
     /// The usable things (`carry`: and those that can be taken) the Avatar
     /// can reach from where he stands, the best first: the closest, in

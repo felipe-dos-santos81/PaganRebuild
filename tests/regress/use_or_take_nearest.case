@@ -1,0 +1,7 @@
+# "Use or take" also without picking first: next to the flask at the camp on the docks, "use" on the nearest thing asks, and "take" puts it into the backpack
+args: --map 3 --pos 14431,5700,8
+do: t5;usenear;usemenu:1;item:20301
+expect: usenear: use or take?
+expect: usemenu: id 20301 shape  228
+expect: parent 20310
+reject: usemenu notice:
