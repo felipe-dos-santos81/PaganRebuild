@@ -916,11 +916,11 @@ impl Game {
             // the one picked with the keys or the pad: in yellow (the colour
             // things speak in) with the gold stud of the menus before it
             // (the game's fonts have no "<" or ">", which marked it before
-            // and stayed unseen); only while they steer, not the mouse
+            // and stayed unseen)
             let picked_font = self.data.font_or_plain(8).unwrap_or(font);
             for (i, c) in choices.iter().enumerate() {
                 let line = format!("{}. {}", i + 1, c.trim());
-                let picked = self.ask_pick == Some(i) && self.ui.keys_steer;
+                let picked = self.ask_pick == Some(i);
                 let f = if picked { picked_font } else { font };
                 let w = f.width_at(&line, ts);
                 let x = (ax - w / 2).clamp(12, (surf.width - w - 2).max(12));

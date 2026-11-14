@@ -211,8 +211,6 @@ pub struct Play {
     /// Pad buttons held when it changed between the world and a menu: they
     /// count again once let go (see `pad_pass`).
     pad_stale: Vec<crate::platform::Pad>,
-    /// Where the mouse pointer was at the last pass (to see the mouse move).
-    last_pointer: Option<(f32, f32)>,
 }
 
 impl Play {
@@ -277,7 +275,6 @@ impl Play {
             pad_repeat: None,
             pad_world: false,
             pad_stale: Vec::new(),
-            last_pointer: None,
         })
     }
 
@@ -419,18 +416,6 @@ impl Play {
             let speed = (push - 0.2) / 0.8;
             let step = speed * speed * h as f32 / 50.0 + 1.0;
             window.move_pointer((rx / push * step) as f64, (-ry / push * step) as f64);
-        }
-        // Who steers: the pad (a button, the left stick) or the mouse (it
-        // moved, not pushed by the right stick). The answer picked in a
-        // conversation shows only while the keys or the pad steer.
-        let pointer = window.get_mouse_pos(MouseMode::Discard);
-        if self.last_pointer.is_some() && pointer != self.last_pointer && push <= 0.2 {
-            self.game.ui.keys_steer = false;
-        }
-        self.last_pointer = pointer;
-        let (sx, sy) = window.stick();
-        if !window.pad_events().is_empty() || sx.abs() > 0.5 || sy.abs() > 0.5 {
-            self.game.ui.keys_steer = true;
         }
     }
 
@@ -833,20 +818,30 @@ impl Play {
         // or picked with the arrows (and the pad) and taken with Enter
         if let Some((_, choices)) = &game.ask {
             let n = choices.len() as i32;
-            // (the first one stands picked from the start, see intrinsics.rs)
+            // nothing is picked at first (with the mouse nothing shows); up
+            // picks the last answer, down the first, and on from there
             for (key, d) in [(Key::Up, -1), (Key::Down, 1)] {
                 if n > 0 && window.is_key_pressed(key, KeyRepeat::Yes) {
                     let at = game.ask_pick.map_or(if d > 0 { -1 } else { n }, |p| p as i32);
                     game.ask_pick = Some((at + d).rem_euclid(n) as usize);
-                    // (the arrow keys steer now: the pick shows)
-                    game.ui.keys_steer = true;
                 }
             }
         }
         let enter = window.is_key_pressed(Key::Enter, KeyRepeat::No);
-        if let (true, Some(_), Some(p)) = (enter, &game.ask, game.ask_pick) {
-            game.answer(p);
-            return;
+        if let (true, Some((_, choices))) = (enter, &game.ask) {
+            match game.ask_pick {
+                Some(p) => {
+                    game.answer(p);
+                    return;
+                }
+                // Enter (the pad's A) with nothing picked: the first answer
+                // is picked and shows, the next press takes it
+                None if !choices.is_empty() => {
+                    game.ask_pick = Some(0);
+                    return;
+                }
+                None => {}
+            }
         }
 
         // the journal and the spell book: the arrows and the page keys

@@ -47,9 +47,6 @@ pub struct Ui {
     /// and its name.
     pub window_picked: Option<u16>,
     pub window_picked_name: Option<String>,
-    /// The pad or the arrow keys steer, not the mouse: the answer picked in
-    /// a conversation shows (with the mouse it stays unmarked).
-    pub keys_steer: bool,
     /// The small menu "use or take" for a thing that can be both
     /// (usemenu.rs), while it is open.
     pub use_menu: Option<crate::usemenu::UseMenu>,
