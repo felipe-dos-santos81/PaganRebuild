@@ -220,6 +220,10 @@ pub struct ViewState {
     pub(crate) lerps: HashMap<u16, Lerp>,
     /// Where the gliding camera is right now, and when it was last moved.
     pub(crate) cam_smooth: Option<((f32, f32, f32), std::time::Instant)>,
+    /// The gliding camera's distance to what it follows in whole pixels of
+    /// the view (across, down), as used for the last picture (see
+    /// `pixel_steady`).
+    pub(crate) cam_pixels: (i32, i32),
     /// The moment the picture being drawn stands for, one screen refresh
     /// after the one before (set by the window, play.rs): the figures
     /// between their steps and the gliding camera are placed for it. Where
@@ -268,6 +272,7 @@ impl ViewState {
             under_menu: None,
             lerps: HashMap::default(),
             cam_smooth: None,
+            cam_pixels: (0, 0),
             frame_clock: None,
             ambient_now: None,
             covered_seen: (usize::MAX, HashMap::default()),
@@ -1474,7 +1479,13 @@ impl Game {
                 };
                 self.view.cam_target = Some((t, since));
                 let resting = now.duration_since(since).as_secs_f32() > 0.05;
-                let smooth_time = if resting { 0.06 } else { 0.2 };
+                // A figure that glides at an even pace (option "even
+                // walking") needs no long spring to even its steps out: the
+                // camera keeps close to it. With the long one it fell some
+                // 17 pixels behind when he set out and closed up again when
+                // he stopped, a jolt at either end of every walk.
+                let even = matches!(self.camera, crate::effects::CameraMode::Follow(id) if matches!(self.view.lerps.get(&id), Some(Lerp::Glide(_))));
+                let smooth_time = if resting { 0.06 } else if even { 0.08 } else { 0.2 };
                 let dt = now.duration_since(last).as_secs_f32().min(0.1);
                 let omega = 2.0 / smooth_time;
                 let x = omega * dt;
@@ -1495,12 +1506,13 @@ impl Game {
                 }
                 self.view.cam_vel = v;
                 self.view.cam_smooth = Some((c, now));
-                let (sx, sy, sz) = pixel_steady(c, (target.0 - quake.0, target.1 - quake.1, target.2));
+                let (sx, sy, sz) = pixel_steady(c, (target.0 - quake.0, target.1 - quake.1, target.2), &mut self.view.cam_pixels);
                 (sx + quake.0, sy + quake.1, sz)
             }
             _ => {
                 self.view.cam_vel = (0.0, 0.0, 0.0);
                 self.view.cam_smooth = Some((t, now));
+                self.view.cam_pixels = (0, 0);
                 target
             }
         }
@@ -1888,11 +1900,19 @@ pub fn roof_above(map: &MapData, infos: &[crate::shape::ShapeInfo], avatar: &Ite
 /// and camera each moved 1 or 2 pixels a picture by turns, out of step, and
 /// the figure shook a pixel to and fro on the screen; now both move alike
 /// and it shifts only as the distance itself grows or shrinks by a pixel.
-fn pixel_steady(c: (f32, f32, f32), t: (i32, i32, i32)) -> (i32, i32, i32) {
+///
+/// `pixels`: the distance (across, down) used for the last picture. It is
+/// kept until the real one is clearly another: walking on, the distance
+/// stays about the same, and where that was near the middle between two
+/// pixels (8.5) the slightest change tipped it to and fro - the figure
+/// bobbed a pixel every few pictures, in some directions and not others.
+fn pixel_steady(c: (f32, f32, f32), t: (i32, i32, i32), pixels: &mut (i32, i32)) -> (i32, i32, i32) {
     let (tx, ty, tz) = (t.0 as f32, t.1 as f32, t.2 as f32);
     // the distance in pixels across and down, whole
-    let across = (((c.0 - c.1) - (tx - ty)) / 4.0).round() as i32;
-    let down = (((c.0 + c.1) - (tx + ty)) / 8.0).round() as i32;
+    let steady = |was: i32, now: f32| if (now - was as f32).abs() > 0.75 { now.round() as i32 } else { was };
+    let across = steady(pixels.0, ((c.0 - c.1) - (tx - ty)) / 4.0);
+    let down = steady(pixels.1, ((c.0 + c.1) - (tx + ty)) / 8.0);
+    *pixels = (across, down);
     // the camera's x - y and x + y: the target's, shifted by whole pixels
     // (the view rounds them down: shifted by 4 and 8, they stay whole
     // pixels apart from the target's)
@@ -2003,7 +2023,8 @@ mod tests {
         for t in [(1000, 500, 8), (500, 1000, 8), (14527, 5887, 48), (3, 5, 0)] {
             for (dx, dy, dz) in [(6.3, -2.1, 0.4), (-13.7, 9.2, -1.0), (0.4, 0.4, 0.0), (25.0, 25.0, 3.0), (-1.9, -30.2, 0.0)] {
                 let c = (t.0 as f32 + dx, t.1 as f32 + dy, t.2 as f32 + dz);
-                let cam = super::pixel_steady(c, t);
+                // (a distance from before that is far off: the real one counts)
+                let cam = super::pixel_steady(c, t, &mut (1000, 1000));
                 // the figure's place on the screen, less the view's: whole
                 // pixels, the distance rounded
                 let across = figure_sx(cam.0, cam.1) - figure_sx(t.0, t.1);
@@ -2013,6 +2034,26 @@ mod tests {
                 assert_eq!(cam.2, t.2 + dz.round() as i32);
             }
         }
+    }
+
+    #[test]
+    fn camera_distance_does_not_tip_to_and_fro() {
+        // a distance swaying about the middle between two pixels (8.5 down)
+        let t = (1000, 600, 8);
+        let mut pixels = (0, 0);
+        let mut seen = Vec::new();
+        for i in 0..40 {
+            let down = 8.5 + if i % 2 == 0 { 0.1 } else { -0.1 };
+            let c = (t.0 as f32 + 4.0 * down, t.1 as f32 + 4.0 * down, t.2 as f32);
+            super::pixel_steady(c, t, &mut pixels);
+            seen.push(pixels.1);
+        }
+        // it settles on one of the two and stays
+        assert!(seen[1..].iter().all(|&d| d == seen[1]), "{seen:?}");
+        // a real change of more than a pixel is followed
+        let c = (t.0 as f32 + 4.0 * 11.0, t.1 as f32 + 4.0 * 11.0, t.2 as f32);
+        super::pixel_steady(c, t, &mut pixels);
+        assert_eq!(pixels.1, 11);
     }
 
     #[test]
