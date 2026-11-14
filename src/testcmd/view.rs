@@ -278,7 +278,8 @@ fn cmd_minimap(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
 /// time, where the Avatar is, where he is drawn in the view, where the view
 /// lies, and so where the figure is drawn in the world ("figure", view
 /// pixels); then unrounded where the figure is drawn ("pos") and where the
-/// gliding camera points ("cam"), in world units.
+/// gliding camera points ("cam"), in world units; last his frame and the one
+/// he was drawn in.
 fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
     let mut parts = arg.split(',');
@@ -300,10 +301,12 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
         let shown = game.shown_at(AVATAR).unwrap_or((0, 0));
         let o = game.view.origin;
         let pos = game.drawn_position(AVATAR).unwrap_or_default();
+        // (the pose he was drawn in: on his way, that of where he is going)
+        let drawn_frame = game.map().index(AVATAR).and_then(|i| game.view.painted.iter().find(|p| p.index == i)).map_or(0, |p| p.frame);
         // (the camera's own time: when the picture began)
         let (cam, cam_at) = game.view.cam_smooth.map_or(((0.0, 0.0, 0.0), 0.0), |c| (c.0, c.1.saturating_duration_since(start).as_secs_f64() * 1000.0));
-        println!("tick {tick}.{sub}: ms {at:.1} world {},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1}",
-            av.x, av.y, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2);
+        println!("tick {tick}.{sub}: ms {at:.1} world {},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1} frame {} drawn {drawn_frame}",
+            av.x, av.y, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2, av.frame);
     };
     // (then stand still for a while: the view comes to rest)
     for tick in 0..64u32 {

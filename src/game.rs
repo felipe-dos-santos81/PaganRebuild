@@ -40,11 +40,19 @@ pub(crate) enum Lerp {
     Glide(Glide),
 }
 
+/// How a figure looks at a position on its way: the frame of its shape and
+/// whether it is drawn mirrored.
+pub(crate) type Pose = (u32, bool);
+
 pub(crate) struct Glide {
     /// Where the figure is drawn.
     at: (f32, f32, f32),
-    /// The positions still to be reached, the last one where the actor is.
-    way: std::collections::VecDeque<(i32, i32, i32)>,
+    /// The positions still to be reached, the last one where the actor is,
+    /// each with the pose the actor had there. The figure is drawn in the
+    /// pose of the position it is going to: the actor stopping stands at
+    /// once, and the figure, still on the last bit of its way in the
+    /// standing pose, seemed to slide there.
+    way: std::collections::VecDeque<((i32, i32, i32), Pose)>,
     /// The even pace, in world units per game tick.
     speed: f32,
     /// How far behind the actor the figure should be: the distance of one
@@ -90,7 +98,7 @@ impl Glide {
         self.last = now;
         // (30 ticks are a second)
         let mut left = self.speed * 30.0 * dt * self.pace(now);
-        while let Some(&next) = self.way.front() {
+        while let Some(&(next, _)) = self.way.front() {
             let d = distance(self.at, next);
             if d > left {
                 let k = left / d;
@@ -141,7 +149,7 @@ impl Glide {
     fn behind(&self) -> f32 {
         let mut from = self.at;
         let mut d = 0.0;
-        for &p in &self.way {
+        for &(p, _) in &self.way {
             d += distance(from, p);
             from = (p.0 as f32, p.1 as f32, p.2 as f32);
         }
@@ -154,7 +162,16 @@ impl Lerp {
     fn to(&self) -> (i32, i32, i32) {
         match self {
             Lerp::Line { to, .. } => *to,
-            Lerp::Glide(g) => g.way.back().copied().unwrap_or((g.at.0.round() as i32, g.at.1.round() as i32, g.at.2.round() as i32)),
+            Lerp::Glide(g) => g.way.back().map_or((g.at.0.round() as i32, g.at.1.round() as i32, g.at.2.round() as i32), |w| w.0),
+        }
+    }
+
+    /// The pose to draw the figure in while it is on its way (None: the
+    /// actor's own).
+    fn pose(&self) -> Option<Pose> {
+        match self {
+            Lerp::Line { .. } => None,
+            Lerp::Glide(g) => g.way.front().map(|w| w.1),
         }
     }
 
@@ -748,6 +765,8 @@ impl Game {
             if it.in_world() {
                 let map = &self.maps[&self.cur_map];
                 let before = (it.x, it.y, it.z);
+                let pose_of = |it: &Item| (it.frame, it.flags & crate::map::FLG_FLIPPED != 0);
+                let pose_before = pose_of(&it);
                 mover.in_scene = id == AVATAR && self.stasis;
                 if mover.tick(input, &mut it, map, &self.data.infos, &mut self.data.anims) {
                     let after = (it.x, it.y, it.z);
@@ -772,8 +791,9 @@ impl Game {
                                 // head start anew)
                                 if g.way.is_empty() {
                                     g.hold_until = hold(speed, slack);
+                                    g.way.push_back((before, pose_before));
                                 }
-                                g.way.push_back(after);
+                                g.way.push_back((after, pose_of(&it)));
                                 g.speed = speed;
                                 g.lag = lag_of(speed);
                                 g.due = due;
@@ -783,7 +803,7 @@ impl Game {
                             // way leads over the last position to the new one
                             (Some((speed, slack)), _) => Lerp::Glide(Glide {
                                 at: shown,
-                                way: [before, after].into_iter().collect(),
+                                way: [(before, pose_before), (after, pose_of(&it))].into_iter().collect(),
                                 speed,
                                 lag: lag_of(speed),
                                 due,
@@ -1165,9 +1185,9 @@ impl Game {
         }
         self.draw_health_bars(surf);
         // the real positions back
-        for (idx, pos) in moved {
+        for (idx, pos, frame, flags) in moved {
             let it = &mut self.map_mut().items[idx];
-            (it.x, it.y, it.z) = pos;
+            (it.x, it.y, it.z, it.frame, it.flags) = (pos.0, pos.1, pos.2, frame, flags);
         }
         if self.screen.inverted {
             surf.flip_rows();
@@ -1202,9 +1222,9 @@ impl Game {
     }
 
     /// With the smooth camera: actors between two steps are put where they
-    /// are on their way. Returns the real positions, to be put back after
-    /// drawing.
-    fn place_between_steps(&mut self) -> Vec<(usize, (i32, i32, i32))> {
+    /// are on their way, in the pose that belongs there. Returns the real
+    /// positions, frames and flags, to be put back after drawing.
+    fn place_between_steps(&mut self) -> Vec<(usize, (i32, i32, i32), u32, u16)> {
         let mut moved = Vec::new();
         if !self.options.smooth_camera || self.ui.menu.is_some() {
             self.view.lerps.clear();
@@ -1221,8 +1241,12 @@ impl Game {
                 continue; // moved by something else in the meantime
             }
             if !done {
-                moved.push((idx, to));
+                moved.push((idx, to, it.frame, it.flags));
                 (it.x, it.y, it.z) = pos;
+                if let Some((frame, flipped)) = l.pose() {
+                    it.frame = frame;
+                    it.flags = if flipped { it.flags | crate::map::FLG_FLIPPED } else { it.flags & !crate::map::FLG_FLIPPED };
+                }
                 self.view.lerps.insert(id, l);
             }
         }
@@ -1939,6 +1963,8 @@ mod tests {
     const WALK: [i32; 8] = [32, 24, 16, 32, 32, 16, 16, 32];
     const FRAME: Duration = Duration::from_nanos(2_000_000_000 / 30);
     const PICTURE: Duration = Duration::from_nanos(1_000_000_000 / 60);
+    /// The pose he stands in; walking, frame n of the walk is pose n + 1.
+    const STANDING: super::Pose = (0, false);
 
     /// A figure walking along x from 0 at the walk's even pace, as the game
     /// sets it up for the first step.
@@ -1956,7 +1982,7 @@ mod tests {
         }
         let margin = super::MARGIN * speed * 2.0;
         let hold_until = t + Duration::from_secs_f32((slack + margin) / (speed * 30.0));
-        Glide { at: (0.0, 0.0, 0.0), way: [(0, 0, 0), (WALK[0], 0, 0)].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t, hold_until, closest: margin, closest_before: margin, stretch: t }
+        Glide { at: (0.0, 0.0, 0.0), way: [((0, 0, 0), STANDING), ((WALK[0], 0, 0), (1, false))].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t, hold_until, closest: margin, closest_before: margin, stretch: t }
     }
 
     /// Walks `frames` frames, drawing at 60 pictures a second; returns
@@ -1973,7 +1999,7 @@ mod tests {
             }
             if k < frames {
                 real += WALK[k % WALK.len()];
-                g.way.push_back((real, 0, 0));
+                g.way.push_back(((real, 0, 0), (k as u32 % WALK.len() as u32 + 1, false)));
                 g.due = t0 + FRAME * (k as u32 + 1);
             }
         }
@@ -2015,6 +2041,29 @@ mod tests {
         assert!(g.way.is_empty(), "still behind by {}", g.behind());
         assert_eq!(g.at.0, real as f32);
         assert!(t <= end + FRAME * 2 + Duration::from_millis(30), "took {:?} after the last frame", t - end);
+    }
+
+    #[test]
+    fn walks_the_last_bit_in_the_walking_pose() {
+        let t0 = Instant::now();
+        let lerp = super::Lerp::Glide(setting_out(t0));
+        // waiting for the head start: still standing
+        assert_eq!(lerp.pose(), Some(STANDING));
+        // stopped after 20 frames: in the pose of the last frame as long as
+        // the figure is on its way, then the actor's own
+        let (_, end, g) = walk(20);
+        let mut lerp = super::Lerp::Glide(g);
+        let last = (19 % WALK.len() as u32 + 1, false);
+        let mut t = end;
+        loop {
+            t += PICTURE / 4;
+            let (_, done) = lerp.position(t);
+            if done {
+                break;
+            }
+            assert_eq!(lerp.pose(), Some(last));
+        }
+        assert_eq!(lerp.pose(), None);
     }
 
     #[test]
@@ -2061,7 +2110,7 @@ mod tests {
         // round a corner: the figure goes over the corner, not across it
         let t = Instant::now();
         let mut g = setting_out(t);
-        g.way = [(0, 0, 0), (40, 0, 0), (40, 40, 0)].into_iter().collect();
+        g.way = [(0, 0, 0), (40, 0, 0), (40, 40, 0)].into_iter().map(|p| (p, STANDING)).collect();
         let mut now = t;
         while !g.way.is_empty() {
             now += PICTURE / 2;
