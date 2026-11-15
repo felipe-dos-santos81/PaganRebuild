@@ -1,0 +1,7 @@
+# Click-walk to the back corner of a room in Tenebrae (map 40) that a chair
+# and a stool shut off, with the door open: the Avatar goes as near as he
+# gets inside the room (and shakes his head), not out of the door and round
+# the house to stand behind its back wall, nearer as the crow flies
+args: --map 40 --pos 12900,13560,48
+do: t5;operate:18850;t20;goto:12706,13586,48;t5;walkclick:250,160;t250;where:1
+expect: where 1: 12602,13602,48

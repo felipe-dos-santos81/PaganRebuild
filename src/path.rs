@@ -60,7 +60,8 @@ enum Ends {
     /// At the nearest point with nothing overhead up to this height (the
     /// first), not higher than a step above it and not lower than the
     /// second. (Not up on the floor above a spot clicked below: from there
-    /// it is no nearer.)
+    /// it is no nearer.) On the height of the goal, only where it is in
+    /// sight (see `in_sight_on`).
     OpenUpTo(i32, i32),
 }
 
@@ -180,6 +181,29 @@ fn open_above_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, p: (i32, i32,
     map.position_info(&above, &body, infos, actor.id).valid
 }
 
+/// Is the spot `goal` (where the actor would stand) in sight of the actor
+/// standing at `p`: nothing between at head height? Walls block the view,
+/// a chair or a table does not. A way to a spot that cannot be reached
+/// should not end as near as the crow flies on the other side of a wall:
+/// clicked on the floor at the back of a room, the Avatar went out of the
+/// door and round the house to stand behind its back wall.
+fn in_sight_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, p: (i32, i32, i32), goal: (i32, i32)) -> bool {
+    /// The height looked over, above the feet, and the size of the probe.
+    const HEAD: i32 = 32;
+    const PROBE: i32 = 8;
+    let Some(info) = infos.get(actor.shape as usize) else { return true };
+    let (xd, yd, zd) = info.footpad(false);
+    let body = WorldBox { x: p.0, y: p.1, z: p.2, xd, yd, zd };
+    // from the middle of the body here to the middle of it there
+    let (fx, fy) = (p.0 - xd / 2 + PROBE / 2, p.1 - yd / 2 + PROBE / 2);
+    let (dx, dy) = (goal.0 - p.0, goal.1 - p.1);
+    let n = (dx.abs().max(dy.abs()) / (PROBE * 2)).max(1);
+    (1..n).all(|k| {
+        let probe = WorldBox { x: fx + dx * k / n, y: fy + dy * k / n, z: p.2 + HEAD, xd: PROBE, yd: PROBE, zd: PROBE };
+        map.position_info(&probe, &body, infos, actor.id).valid
+    })
+}
+
 /// One point of a way found: where, the direction of the step that led
 /// there, and whether that step went down over an edge.
 struct Step {
@@ -212,7 +236,9 @@ fn search_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32),
     };
     // where a way that does not get there may end
     let end_ok = |p: (i32, i32, i32)| match partial {
-        Ends::OpenUpTo(level, lowest) => p.2 >= lowest && p.2 <= level + 8 && open_above_on(map, infos, actor, p, level),
+        Ends::OpenUpTo(level, lowest) => {
+            p.2 >= lowest && p.2 <= level + 8 && open_above_on(map, infos, actor, p, level) && (p.2 < level - 8 || in_sight_on(map, infos, actor, p, goal))
+        }
         _ => true,
     };
     let mut open = BinaryHeap::from([(Reverse(estimate(start)), 0usize, 0i32)]);
