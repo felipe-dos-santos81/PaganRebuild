@@ -212,7 +212,7 @@ impl Game {
         if let Some(id) = self.window_picked() {
             // a thing that can be used and taken asks which is meant; one
             // that can only be taken (from another container) is taken
-            if self.asks_use_or_take(id) {
+            if self.asks_use_or_take(id) || self.asks_wear_or_use(id) {
                 self.open_use_menu(id);
             } else if !self.usable(id) && self.root_container(id) != AVATAR && self.portable(id) {
                 self.take_into_backpack(id);

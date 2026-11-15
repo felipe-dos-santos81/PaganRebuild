@@ -1,20 +1,30 @@
-//! A small menu for a thing that can be both used and taken (option
-//! "cycle through things", made for the pad): "use" on such a thing asks
-//! which of the two is meant, beside the thing. Up and down choose, "use"
-//! (Enter, the pad's A) confirms, Esc (B) cancels; a click on a line takes
-//! it. The game stands still meanwhile.
+//! A small menu for a thing that can be used and taken (option "cycle
+//! through things", made for the pad): "use" on such a thing asks which is
+//! meant, beside the thing. Armour and weapons can also be put on; a
+//! weapon with a use of its own (the dagger is thrown) asks "wear, throw,
+//! take", in the backpack "wear, throw". Up and down choose, "use" (Enter,
+//! the pad's A) confirms, Esc (B) cancels; a click on a line takes it. The
+//! game stands still meanwhile.
 
 use crate::game::{Game, AVATAR};
 use crate::view::Surface;
+
+/// What a line of the menu does.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Choice {
+    Use,
+    Wear,
+    Take,
+}
 
 /// The menu, while it is open.
 pub struct UseMenu {
     /// The thing it is about.
     pub item: u16,
-    /// The line chosen: 0 use, 1 take.
+    /// The line chosen.
     pub sel: usize,
-    /// Armour or a weapon: the first line puts it on.
-    pub wear: bool,
+    /// The lines: what each does and what it says.
+    pub lines: Vec<(Choice, &'static str)>,
 }
 
 const BACK: u32 = 0x1C140C;
@@ -44,21 +54,44 @@ impl Game {
         self.wear_slot(id).is_some() && !self.usable(id)
     }
 
+    /// Armour or a weapon he can put on (not worn yet).
+    fn can_put_on(&self, id: u16) -> bool {
+        self.wear_slot(id).is_some_and(|slot| self.equipped(AVATAR, slot).is_none_or(|w| w.id != id))
+    }
+
+    /// Does "use" on a thing in his backpack ask first? A weapon (or
+    /// armour) with a use of its own: put it on, or use it (throw the
+    /// dagger).
+    pub(crate) fn asks_wear_or_use(&mut self, id: u16) -> bool {
+        self.options.pick_things && self.root_container(id) == AVATAR && self.can_put_on(id) && self.usable(id)
+    }
+
     pub fn open_use_menu(&mut self, id: u16) {
-        let wear = self.wears_on_use(id);
-        self.ui.use_menu = Some(UseMenu { item: id, sel: 0, wear });
+        let usable = self.usable(id);
+        let wear = self.can_put_on(id);
+        let mine = self.root_container(id) == AVATAR;
+        // (a weapon's own use throws it: the dagger)
+        let throw = usable && self.wear_slot(id) == Some(crate::equip::SLOT_WEAPON);
+        let mut lines = Vec::new();
+        if wear {
+            lines.push((Choice::Wear, self.tr(["Anlegen", "Porter", "Wear"])));
+        }
+        if usable || !wear {
+            let text = if throw { self.tr(["Werfen", "Lancer", "Throw"]) } else { self.tr(["Benutzen", "Utiliser", "Use"]) };
+            lines.push((Choice::Use, text));
+        }
+        if !mine {
+            lines.push((Choice::Take, self.tr(["Nehmen", "Prendre", "Take"])));
+        }
+        self.ui.use_menu = Some(UseMenu { item: id, sel: 0, lines });
     }
 
     pub fn close_use_menu(&mut self) {
         self.ui.use_menu = None;
     }
 
-    fn use_menu_lines(&self) -> [&'static str; 2] {
-        // armour and weapons: put on, or take into the backpack
-        if self.ui.use_menu.as_ref().is_some_and(|m| m.wear) {
-            return self.tr([["Anlegen", "Nehmen"], ["Porter", "Prendre"], ["Wear", "Take"]]);
-        }
-        self.tr([["Benutzen", "Nehmen"], ["Utiliser", "Prendre"], ["Use", "Take"]])
+    fn use_menu_lines(&self) -> Vec<&'static str> {
+        self.ui.use_menu.as_ref().map_or(Vec::new(), |m| m.lines.iter().map(|l| l.1).collect())
     }
 
     /// The thing's name over the two lines (instead of over the thing,
@@ -72,10 +105,10 @@ impl Game {
         }
     }
 
-    /// Up (-1) or down (1) to the other line.
+    /// Up (-1) or down (1) to the line before or after.
     pub fn use_menu_key(&mut self, dy: i32) {
         if let Some(m) = &mut self.ui.use_menu {
-            m.sel = (m.sel as i32 + dy).rem_euclid(2) as usize;
+            m.sel = (m.sel as i32 + dy).rem_euclid(m.lines.len().max(1) as i32) as usize;
         }
     }
 
@@ -88,9 +121,10 @@ impl Game {
         // a walk the player sent him on ends here
         self.cancel_approach();
         let in_world = self.map().get(id).is_some_and(|it| it.in_world());
-        let done = if m.sel == 0 && m.wear {
+        let choice = m.lines.get(m.sel).map_or(Choice::Use, |l| l.0);
+        let done = if choice == Choice::Wear {
             self.wear(id)
-        } else if m.sel == 0 {
+        } else if choice == Choice::Use {
             // (in the world it may lie further than "use" reaches - on a
             // table the hand reaches: he steps up to it first, as after a
             // click)
@@ -129,7 +163,7 @@ impl Game {
         let title_w = title.as_deref().map_or(0, |t| font.width(t));
         let width = (lines.iter().map(|l| font.width(l)).max().unwrap_or(0) + STUD).max(title_w) + 2 * PAD;
         let title_h = if title.is_some() { lh + 2 } else { 0 };
-        let height = title_h + 2 * lh + 2 * PAD;
+        let height = title_h + lines.len() as i32 * lh + 2 * PAD;
         let x0 = ax.clamp(0, (w - width).max(0));
         let y0 = (ay - height / 2).clamp(0, (h - height).max(0));
         Some((x0, y0, x0 + width, y0 + height, lh, y0 + PAD + title_h))
@@ -175,9 +209,8 @@ impl Game {
                 if y < first {
                     return;
                 }
-                let line = ((y - first) / lh).clamp(0, 1) as usize;
                 if let Some(m) = &mut self.ui.use_menu {
-                    m.sel = line;
+                    m.sel = ((y - first) / lh).clamp(0, m.lines.len() as i32 - 1).max(0) as usize;
                 }
                 self.use_menu_confirm();
             }

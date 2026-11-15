@@ -1,0 +1,7 @@
+# A dagger in the backpack, picked in its window: "use" asks "wear, throw";
+# wear puts it in his hand (a double click still throws it, as in the
+# original)
+args: --map 3 --pos 14700,5700,8
+do: option:pick_things,on;t5;pack:418;inv;t1;pickwin:1;usenear;usemenu:0;t5;worn
+expect: usenear menu: Wear / Throw
+expect: worn 6: id 20311 shape  418

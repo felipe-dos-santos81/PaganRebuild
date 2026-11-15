@@ -206,21 +206,22 @@ fn cmd_usenear(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
         println!("usenear notice: {text}");
     }
     // a thing that can be used and taken asks first
-    if game.ui.use_menu.is_some() {
+    if let Some(m) = &game.ui.use_menu {
         println!("usenear: use or take?");
+        println!("usenear menu: {}", m.lines.iter().map(|l| l.1).collect::<Vec<_>>().join(" / "));
     }
     Ok(Flow::Done)
 }
 
-/// usemenu:<0|1>  in the menu "use or take" the line (0 use, 1 take) is
-/// chosen and confirmed, as with the pad's down and A
+/// usemenu:<n>  in the menu "use or take" line n (from 0) is chosen and
+/// confirmed, as with the pad's down and A
 fn cmd_usemenu(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let line = number(arg, cmd)?;
     let Some(id) = game.ui.use_menu.as_ref().map(|m| m.item) else {
         println!("usemenu: no menu");
         return Ok(Flow::Done);
     };
-    if line == 1 {
+    for _ in 0..line {
         game.use_menu_key(1);
     }
     game.use_menu_confirm();

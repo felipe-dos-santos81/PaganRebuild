@@ -1,0 +1,6 @@
+# A dagger on the ground (a weapon with a use of its own: it is thrown)
+# asks "wear, throw, take"; wear puts it in his hand
+args: --map 3 --pos 14700,5700,8
+do: option:pick_things,on;t5;place:418,0,14730,5700,8;t2;usenear;usemenu:0;t5;worn
+expect: usenear menu: Wear / Throw / Take
+expect: worn 6: id 20311 shape  418
