@@ -631,9 +631,11 @@ impl Play {
         self.game = new_game(&self.args)?;
         self.game.view.size = (self.surf.width, self.surf.height);
         if self.with_title {
-            // a new game begins with the name
+            // a new game begins with the intro (Esc skips it), then the name
             self.game.started = false;
-            self.game.enter_name();
+            if !self.game.play_movie("INTRO.SKF", crate::title::Next::Name) {
+                self.game.enter_name();
+            }
         }
         self.next_tick = Instant::now() + TICK;
         Ok(())

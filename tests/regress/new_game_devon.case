@@ -1,0 +1,7 @@
+# A new game begins (the name written): the start egg hatches as in the
+# original, the Avatar gets up, turns to Devon (dir 5), Devon to him (dir 1),
+# and Devon speaks to him at once
+do: title:name;titlekey:Hans;titlekey:enter;t400;dirs:1,2
+expect: dirs: 1 dir 5
+expect: dirs: 2 dir 1
+expect: answers: ["Who are you? "

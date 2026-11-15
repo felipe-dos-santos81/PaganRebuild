@@ -358,6 +358,8 @@ fn new_game(args: &Args) -> Result<Game, Box<dyn Error>> {
         if let Some(mover) = actors.get_mut(&AVATAR) {
             mover.play(actor::intro_anim(), &avatar, anims);
         }
+        // (once the name is written, Devon comes up: see hatch_start_egg)
+        game.fresh_start = true;
     }
 
     game.cheat = args.cheat;

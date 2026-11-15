@@ -148,6 +148,20 @@ impl Game {
         }
     }
 
+    /// A new game begins: the start egg hatches, as in the original (the
+    /// egg ScummVM looks for: shape 73, quality 36, far from the beach and
+    /// out of the Avatar's reach). Its script lets the Avatar get up,
+    /// turns him and Devon to each other, Devon speaks to him at once,
+    /// and the people of the world go to their places.
+    pub fn hatch_start_egg(&mut self) {
+        const SHAPE: u32 = 73;
+        const QUALITY: u16 = 36;
+        let Some(idx) = self.map().items.iter().position(|it| it.in_world() && it.shape == SHAPE && it.quality == QUALITY) else { return };
+        self.map_mut().items[idx].hatched = true;
+        let id = self.map().items[idx].id;
+        self.call_event(id, EVENT_HATCH, &[]);
+    }
+
     /// Hatches the eggs whose range the Avatar is in.
     pub fn hatch_eggs(&mut self) {
         let av = self.avatar();

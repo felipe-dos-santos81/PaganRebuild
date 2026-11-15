@@ -505,6 +505,8 @@ impl Game {
         self.maps = maps;
         self.people.npcs = d.npcs;
         self.actors = d.actors;
+        // (a game loaded is no new one: no start egg when it goes on)
+        self.fresh_start = false;
         self.people.npc_dirs = d.npc_dirs;
         self.fights.states = d.states;
         self.mana = d.mana;

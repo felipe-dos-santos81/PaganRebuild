@@ -329,6 +329,9 @@ impl Game {
                     self.avatar_name = if name.is_empty() { "Avatar".to_string() } else { name };
                     self.started = true;
                     self.ui.title = None;
+                    if std::mem::take(&mut self.fresh_start) {
+                        self.hatch_start_egg();
+                    }
                 } else if input.esc {
                     self.open_main_menu();
                 }

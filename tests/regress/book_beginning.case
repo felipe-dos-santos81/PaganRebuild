@@ -1,0 +1,7 @@
+# The savegame book begins with "The Beginning..." as in the original:
+# loading it asks for a new game (the intro, then the name); saving cannot
+# be done there
+do: book:save;bookclick:230,160;book:load;bookclick:230,160
+expect: bookclick: book still open
+expect: bookclick: book closed
+expect: new game requested

@@ -6,7 +6,9 @@
 //! first page also holds the quick save and the autosave, and the book
 //! grows: there is always a free entry after the last one used. Saving
 //! opens the book at that free entry, loading at the last entry used. The book
-//! also appears when the Avatar has died, with "New game" below it.
+//! also appears when the Avatar has died. As in the original, the first
+//! place is "The Beginning...": loading it starts a new game with the
+//! intro, then the name.
 
 use crate::game::Game;
 use crate::menu::draw_stud;
@@ -34,8 +36,10 @@ const TEXT_WIDTH: i32 = 104;
 /// Places on a double page, and at least in the book (as in the original).
 const PER_SPREAD: usize = 6;
 const MIN_PLACES: usize = 12;
-/// The quick save and the autosave come first.
-const SPECIAL: [usize; 2] = [QUICK_SLOT, AUTO_SLOT];
+/// "The Beginning..." (a new game; no slot of its own), then the quick
+/// save and the autosave come first.
+const BEGINNING: usize = usize::MAX;
+const SPECIAL: [usize; 3] = [BEGINNING, QUICK_SLOT, AUTO_SLOT];
 /// The main menu's words ("1. Intro" ..., in English, French and German),
 /// and the letters taken from them: (letter, frame, first and last column).
 const MENU_WORDS_SHAPE: u32 = 37;
@@ -65,7 +69,7 @@ pub enum Mode {
 
 pub struct SlotMenu {
     pub mode: Mode,
-    /// The chosen place; one past the last: "New game" (after a death).
+    /// The chosen place.
     pub selected: usize,
     /// The double page open.
     spread: usize,
@@ -81,10 +85,11 @@ fn entry_slot(n: usize) -> usize {
     if n <= 8 { n } else { n + 1 }
 }
 
-/// The entry number of a slot; None for the quick save and the autosave.
+/// The entry number of a slot; None for the quick save, the autosave and
+/// "The Beginning...".
 pub fn slot_entry(slot: usize) -> Option<usize> {
     match slot {
-        QUICK_SLOT | AUTO_SLOT => None,
+        QUICK_SLOT | AUTO_SLOT | BEGINNING => None,
         s if s <= 8 => Some(s),
         s => Some(s - 1),
     }
@@ -100,16 +105,16 @@ impl SlotMenu {
         (self.spread, self.spreads())
     }
 
-    /// "New game" is there (after a death), as the last choice.
     fn choices(&self) -> usize {
-        self.slots.len() + usize::from(self.mode == Mode::Death)
+        self.slots.len()
     }
 
-    /// Can place `i` be chosen? (The autosave is not saved to by hand.)
+    /// Can place `i` be chosen? (The autosave is not saved to by hand,
+    /// nor "The Beginning...".)
     fn selectable(&self, i: usize) -> bool {
         match self.slots.get(i) {
-            Some(&s) => !(self.mode == Mode::Save && s == AUTO_SLOT),
-            None => i < self.choices(),
+            Some(&s) => !(self.mode == Mode::Save && (s == AUTO_SLOT || s == BEGINNING)),
+            None => false,
         }
     }
 
@@ -141,8 +146,8 @@ impl Game {
             _ => {
                 // the newest game there is
                 let newest = slots.iter().enumerate().filter(|(_, &s)| self.slot_info(s).is_some()).filter_map(|(i, &s)| Some((self.slot_time(s)?, i))).max();
-                // after a death without any: "New game"
-                newest.map(|(_, i)| i).or((mode == Mode::Death).then_some(slots.len()))
+                // without any: "The Beginning..."
+                newest.map(|(_, i)| i)
             }
         };
         let mut m = SlotMenu { mode, selected: 0, spread: 0, slots, editing: None };
@@ -211,12 +216,13 @@ impl Game {
             return;
         }
         let (mode, slot) = (m.mode, m.slots.get(m.selected).copied());
-        let Some(slot) = slot else {
-            // "New game"
+        let Some(slot) = slot else { return };
+        if slot == BEGINNING {
+            // a new game: the intro, then the name
             self.ui.slot_menu = None;
             self.restart = true;
             return;
-        };
+        }
         if mode == Mode::Save {
             // first the name is written, then it is saved
             let Some(name) = self.ui.slot_menu.as_ref().and_then(|m| m.editing.clone()) else {
@@ -263,18 +269,6 @@ impl Game {
         let (bx, by) = self.book_pos(surf_w, surf_h);
         let k = i % PER_SPREAD;
         (bx + PAGE_X[k / 3], by + TOP + (k % 3) as i32 * ENTRY_HEIGHT)
-    }
-
-    /// "New game" below the book: where it is written, and its text.
-    fn new_game_pos(&mut self, surf_w: i32, surf_h: i32) -> Option<(i32, i32, String)> {
-        if self.ui.slot_menu.as_ref()?.mode != Mode::Death {
-            return None;
-        }
-        let text = self.tr(["Neues Spiel", "Nouvelle partie", "New game"]);
-        let (_, by) = self.book_pos(surf_w, surf_h);
-        let width = self.data.font.as_ref().map_or(60, |f| f.width(text));
-        let book_h = self.data.gump_shapes.get(BOOK_SHAPE).and_then(|s| s.frames.first().map(|f| f.height)).unwrap_or(158);
-        Some(((surf_w - width) / 2, by + book_h + 8, text.to_string()))
     }
 
     fn gump_frame(&mut self, shape: u32, frame: usize) -> Option<Frame> {
@@ -324,17 +318,6 @@ impl Game {
         for (f, cx, cy, dir) in self.corners(surf_w, surf_h) {
             if x >= cx && x < cx + f.width && y >= cy && y < cy + f.height {
                 self.slot_menu_turn(dir);
-                return;
-            }
-        }
-        if let Some((nx, ny, text)) = self.new_game_pos(surf_w, surf_h) {
-            let width = self.data.font.as_ref().map_or(60, |f| f.width(&text));
-            if x >= nx - 8 && x < nx + width + 8 && y >= ny - 2 && y < ny + 12 {
-                if let Some(m) = &mut self.ui.slot_menu {
-                    let i = m.slots.len();
-                    m.select(i);
-                }
-                self.slot_menu_activate();
                 return;
             }
         }
@@ -470,14 +453,6 @@ impl Game {
         if let Some(font) = &self.data.font {
             font.draw(surf, title, (w - font.width(title)) / 2, by - font.height - 6, &self.data.pal);
         }
-        if let Some((nx, ny, text)) = self.new_game_pos(w, h) {
-            if let Some(font) = &self.data.font {
-                font.draw(surf, &text, nx, ny, &self.data.pal);
-            }
-            if selected == slots.len() {
-                draw_stud(surf, nx - 7, ny + 5, true, true);
-            }
-        }
         let entry_word = self.gump_frame(ENTRY_SHAPE, if self.language == 'G' { 2 } else { 0 });
         let start = spread * PER_SPREAD;
         for i in start..(start + PER_SPREAD).min(slots.len()) {
@@ -497,6 +472,8 @@ impl Game {
                         x += f.width + 1;
                     }
                 }
+                // ("The Beginning..." has only its name, as in the original)
+                None if s == BEGINNING => {}
                 None => {
                     let label = self.special_label(s);
                     if let Some(f) = self.handwriting(label) {
@@ -511,10 +488,11 @@ impl Game {
             }
             // under it the name (being written: with a cursor) and the time
             let name = match &editing {
+                _ if s == BEGINNING => self.tr(["Der Anfang...", "Au Debut...", "The Beginning..."]).to_string(),
                 Some(text) if i == selected => format!("{text}_"),
                 _ => self.slot_name(s).unwrap_or_default(),
             };
-            let details = self.slot_details(self.slot_info(s));
+            let details = if s == BEGINNING { String::new() } else { self.slot_details(self.slot_info(s)) };
             if let Some(font) = self.name_font() {
                 // what is too long for the page is cut short
                 let fit = |text: &str| -> String {
