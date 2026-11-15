@@ -213,8 +213,8 @@ pub struct Play {
     /// Pad buttons held when it changed between the world and a menu: they
     /// count again once let go (see `pad_pass`).
     pad_stale: Vec<crate::platform::Pad>,
-    /// The pad's button for the journal is held (a shift for zooming), and
-    /// it has zoomed meanwhile (see `pad_pass`).
+    /// The pad's button for the journal is held (a shift for zooming and saving quickly), and
+    /// it has been used so meanwhile (see `pad_pass`).
     journal_shift_held: bool,
     journal_shift_used: bool,
 }
@@ -394,15 +394,16 @@ impl Play {
         if !game.keys_waiting(true) {
             if world {
                 // The journal's button (Back) held is a shift: with the cross
-                // up and down it zooms. Let go without having zoomed, it
+                // up and down it zooms, with Y it saves quickly (F5; the
+                // backpack stays shut). Let go without having used it so, it
                 // opens the journal (on letting go, not on pressing).
                 use crate::platform::Pad;
                 let journal = game.bindings.pad_of("journal");
                 let shift = journal.is_some_and(down);
-                let plain = |p: Pad| down(p) && Some(p) != journal && !(shift && matches!(p, Pad::Up | Pad::Down));
+                let plain = |p: Pad| down(p) && Some(p) != journal && !(shift && matches!(p, Pad::Up | Pad::Down | Pad::Y));
                 buttons = pad_in_world(&plain, &game.bindings, &mut keys);
                 if shift {
-                    for (p, k) in [(Pad::Up, Key::Equal), (Pad::Down, Key::Minus)] {
+                    for (p, k) in [(Pad::Up, Key::Equal), (Pad::Down, Key::Minus), (Pad::Y, Key::F5)] {
                         if down(p) {
                             keys.insert(k);
                             self.journal_shift_used = true;
