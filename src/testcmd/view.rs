@@ -271,23 +271,32 @@ fn cmd_minimap(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
     Ok(Flow::Done)
 }
 
-/// smooth:<dir>[,run][,<fps>]  walk (run) with the smooth option on for 44
-/// ticks, then stand; the ticks come at the game's pace (30 a second) and
-/// the view is drawn as often as it can in between, or `fps` times a second
+/// smooth:<dir>[,run][,jump<tick>][,<fps>]  walk (run) with the smooth
+/// option on for 44 ticks, then stand (dir `at<x>/<y>`: a click on the
+/// ground at this view position first, then the walk of the click,
+/// climbing and all; with `jump<tick>` instead the pointer there for the
+/// jump at that tick, and no walk); the ticks come at the game's pace (30 a
+/// second) and the view is drawn as often as it can in between, or `fps` times a second
 /// on the dot (as a screen in step would show it). For each picture: the
 /// time, where the Avatar is, where he is drawn in the view, where the view
 /// lies, and so where the figure is drawn in the world ("figure", view
 /// pixels); then unrounded where the figure is drawn ("pos") and where the
 /// gliding camera points ("cam"), in world units; last his frame and the one
-/// he was drawn in.
+/// he was drawn in, and how many of his pixels are seen.
 fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
     let mut parts = arg.split(',');
-    let dir = num(parts.next().unwrap_or(""))? as u8 & 7;
-    let (mut run, mut fps) = (false, None);
+    let first = parts.next().unwrap_or("");
+    let click = match first.strip_prefix("at") {
+        Some(p) => Some(point(&p.replace('/', ","), cmd)?),
+        None => None,
+    };
+    let dir = if click.is_some() { 0 } else { num(first)? as u8 & 7 };
+    let (mut run, mut fps, mut jump_at) = (false, None, None);
     for p in parts {
         match p {
             "run" => run = true,
+            j if j.starts_with("jump") => jump_at = Some(num(&j[4..])? as u32),
             n => fps = Some(num(n)?.max(1) as u32),
         }
     }
@@ -303,14 +312,29 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
         let pos = game.drawn_position(AVATAR).unwrap_or_default();
         // (the pose he was drawn in: on his way, that of where he is going)
         let drawn_frame = game.map().index(AVATAR).and_then(|i| game.view.painted.iter().find(|p| p.index == i)).map_or(0, |p| p.frame);
+        // (how many pixels of him are seen: none, and he is hidden)
+        let seen = game.map().index(AVATAR).map_or(0, |i| game.view.pixel_ids.iter().filter(|&&p| p == i as u32 + 1).count());
         // (the camera's own time: when the picture began)
         let (cam, cam_at) = game.view.cam_smooth.map_or(((0.0, 0.0, 0.0), 0.0), |c| (c.0, c.1.saturating_duration_since(start).as_secs_f64() * 1000.0));
-        println!("tick {tick}.{sub}: ms {at:.1} world {},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1} frame {} drawn {drawn_frame}",
-            av.x, av.y, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2, av.frame);
+        println!("tick {tick}.{sub}: ms {at:.1} world {},{},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1} frame {} drawn {drawn_frame} seen {seen}",
+            av.x, av.y, av.z, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2, av.frame);
     };
+    // (with a jump: the pointer there when jumping, no walk)
+    if let Some((x, y)) = click.filter(|_| jump_at.is_none()) {
+        game.draw(surf, opts, false);
+        if run {
+            game.orders.run_toggle = true;
+        }
+        game.walk_to_pointer(x, y);
+    }
     // (then stand still for a while: the view comes to rest)
     for tick in 0..64u32 {
-        game.step((tick < 44).then_some(MoveInput { dir, run }));
+        if jump_at == Some(tick) {
+            let (w, h) = game.view.size;
+            game.draw(surf, opts, false);
+            println!("jump: {}", game.jump(click, w, h));
+        }
+        game.step((tick < 44 && click.is_none()).then_some(MoveInput { dir, run }));
         let next = start + tick_time * (tick + 1);
         let mut sub = 0;
         match fps {
