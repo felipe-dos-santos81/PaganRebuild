@@ -1,0 +1,7 @@
+# A key ring on the ground asks "use or take" like other things that can
+# be used and carried (it is a container, which otherwise opens): take puts
+# it into the backpack
+args: --map 3 --pos 14700,5700,8
+do: option:pick_things,on;t5;place:79,0,14730,5700,8;t2;usenear;usemenu:1;t40;item:@
+expect: usenear: use or take?
+expect: shape   79 frame   0 at 0,

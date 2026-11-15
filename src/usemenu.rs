@@ -25,11 +25,13 @@ impl Game {
     /// Does "use" on this thing ask first? It can be used and also taken,
     /// and the Avatar does not carry it yet. Not a container: that is
     /// opened (a barrel is rarely carried off; the pad's attack button
-    /// still takes it).
+    /// still takes it). The key ring is one too, but its use asks for a
+    /// lock: without the question it could not be picked up with "use".
     pub(crate) fn asks_use_or_take(&mut self, id: u16) -> bool {
         let container = self
             .map()
             .get(id)
+            .filter(|it| it.shape != crate::controls::KEYRING)
             .and_then(|it| self.data.infos.get(it.shape as usize))
             .is_some_and(|si| si.family == crate::shape::FAMILY_CONTAINER);
         self.options.pick_things && !container && self.portable(id) && self.root_container(id) != AVATAR && self.usable(id)
