@@ -498,7 +498,9 @@ impl Game {
         for (&n, map) in &mut maps {
             map.reindex();
             // (savegames carry their maps: corrections to the map data apply here too)
-            crate::mapfix::fix_map(n, map, || self.original_map(n));
+            let original = self.original_map(n);
+            crate::mapfix::fix_fallen(map, &original, &self.data.infos);
+            crate::mapfix::fix_map(n, map, || original);
         }
         self.maps = maps;
         self.people.npcs = d.npcs;

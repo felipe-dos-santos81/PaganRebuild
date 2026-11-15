@@ -17,6 +17,14 @@
 //! at height 0 instead, unseen under the corridor - left there by mistake.
 //! The missing pieces are put in.
 //!
+//! Any map of a savegame: fixed things (floor, beams) that a script threw
+//! by mistake fell down from their places, to height 0 or onto what lay
+//! below. An earlier version let new things take numbers that fixed ones
+//! of another map had, and a script still holding such a number made the
+//! fixed one fly (after the summoning of Pyros a floor tile beside the
+//! road lay at height 0: a black hole). Fixed things that lie where the
+//! game data have them, only lower, go back up (`fix_fallen`).
+//!
 //! Upper Catacombs (map 50), once the dead have been talked to: an egg
 //! clears a region and lays new floor in small pieces. The clearing takes
 //! the large floor plates of the room beside it too (they reach into the
@@ -25,6 +33,7 @@
 
 use crate::eggs::FLG_FAST_ONLY;
 use crate::map::{Item, MapData};
+use crate::shape::ShapeInfo;
 
 const CATACOMBS: usize = 50;
 const FLOOR: u32 = 556;
@@ -115,6 +124,22 @@ pub fn fix_wiped(n: usize, map: &mut MapData) {
 const EDGE_FLOOR: u32 = 352;
 const WIPE_EDGE: [(i32, i32, i32, u32); 3] = [(16895, 1535, 48, 6), (16895, 1791, 48, 2), (16895, 2047, 48, 4)];
 
+/// Fixed things of a savegame's map that lie lower than the game data
+/// have them, right below their place: back up (see the top). The same
+/// thing (number, shape and frame) at the same x and y; nothing that a
+/// correction here puts elsewhere is moved back, they are applied after.
+pub fn fix_fallen(map: &mut MapData, original: &MapData, infos: &[ShapeInfo]) {
+    for it in map.items.iter_mut() {
+        if !it.in_world() || it.id == 0 || !infos.get(it.shape as usize).is_some_and(|si| si.fixed) {
+            continue;
+        }
+        let Some(o) = original.get(it.id) else { continue };
+        if o.in_world() && (o.shape, o.frame, o.x, o.y) == (it.shape, it.frame, it.x, it.y) && o.z > it.z {
+            it.z = o.z;
+        }
+    }
+}
+
 /// Applies the corrections for map `n`; `original` builds the map as the
 /// game data have it (only called for maps that need it).
 pub fn fix_map(n: usize, map: &mut MapData, original: impl FnOnce() -> MapData) {
@@ -182,6 +207,31 @@ mod tests {
         let mut map = empty();
         map.add(side);
         map
+    }
+
+    #[test]
+    fn fallen_fixed_things_go_back_up() {
+        // shape 1 fixed, shape 2 not
+        let infos = [ShapeInfo::default(), ShapeInfo { fixed: true, ..Default::default() }, ShapeInfo::default()];
+        let tile = Item { shape: 1, frame: 5, x: 16767, y: 13951, z: 56, ..Item::default() };
+        let beam = Item { shape: 1, frame: 1, x: 19871, y: 13343, z: 104, ..Item::default() };
+        let moved = Item { shape: 1, x: 15967, y: 6015, z: 48, ..Item::default() };
+        let barrel = Item { shape: 2, x: 1000, y: 1000, z: 56, ..Item::default() };
+        let mut original = empty();
+        let ids: Vec<u16> = [tile, beam, moved, barrel].into_iter().map(|it| original.add(it)).collect();
+        // a savegame: the tile fell to 0, the beam onto something below,
+        // the other one lies elsewhere (a correction of its own), the
+        // barrel was thrown down there by the player
+        let mut map = empty();
+        for (it, z, x) in [(tile, 0, tile.x), (beam, 88, beam.x), (moved, 48, 15999), (barrel, 0, barrel.x)] {
+            map.add(Item { z, x, ..it });
+        }
+        fix_fallen(&mut map, &original, &infos);
+        let z = |map: &MapData, i: usize| map.get(ids[i]).map(|it| (it.x, it.z));
+        assert_eq!(z(&map, 0), Some((16767, 56)));
+        assert_eq!(z(&map, 1), Some((19871, 104)));
+        assert_eq!(z(&map, 2), Some((15999, 48)));
+        assert_eq!(z(&map, 3), Some((1000, 0)));
     }
 
     #[test]

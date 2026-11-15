@@ -519,7 +519,9 @@ impl Game {
         let Some(idx) = self.map().index(h.item) else { return true };
         let it = self.map().items[idx];
         let Some(si) = self.data.infos.get(it.shape as usize).copied() else { return true };
-        if !it.in_world() {
+        // (nor anything fixed in place: a script holding a number that
+        // meant something else made a floor tile fall out of the world)
+        if !it.in_world() || si.fixed {
             return true;
         }
         h.speed.2 -= h.gravity;
