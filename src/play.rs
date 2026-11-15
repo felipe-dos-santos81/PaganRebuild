@@ -322,6 +322,12 @@ impl Play {
             Pass::Go => {}
             other => return Ok(other),
         }
+        // a new game asked for ("The Beginning..." in the book, also from
+        // the main menu before a game has begun): the intro begins at once
+        if self.game.restart {
+            self.restart()?;
+            return Ok(Pass::Done);
+        }
         if !self.game.started && self.game.ui.title.is_none() && self.game.ui.menu.is_none() && self.game.ui.slot_menu.is_none() {
             // back from the options or the diary before the game has begun
             self.game.open_main_menu();
@@ -331,10 +337,6 @@ impl Play {
             return Ok(Pass::Done);
         }
         self.function_keys();
-        if self.game.restart {
-            self.restart()?;
-            return Ok(Pass::Done);
-        }
         if self.game.ui.slot_menu.is_some() {
             self.book_pass(esc_pressed, left_edges)?;
             return Ok(Pass::Done);
