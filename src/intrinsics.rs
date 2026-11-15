@@ -1078,6 +1078,11 @@ impl Game {
                 if dir < 8 {
                     mover.dir = dir as u8;
                 }
+                // the start egg's script lets him get up: from now on he
+                // is his own again (see hatch_start_egg)
+                if id == AVATAR && action == crate::anim::STAND_UP {
+                    mover.hold = false;
+                }
                 let ok = mover.play(action, &it, &mut self.data.anims);
                 self.actors.insert(id, mover);
                 if ok { self.add_native(Kind::AnimWait(id), id, 0x00F0) as u32 } else { 0 }

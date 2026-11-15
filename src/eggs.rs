@@ -162,6 +162,9 @@ impl Game {
         let dir = self.mover(crate::game::AVATAR).dir;
         let mut mover = crate::actor::Mover::new(dir);
         mover.auto_stand = true;
+        // he lies there until the script lets him get up (doAnim): he
+        // stood up at once and could be walked off before that
+        mover.hold = true;
         self.actors.insert(crate::game::AVATAR, mover);
         self.map_mut().items[idx].hatched = true;
         let id = self.map().items[idx].id;
