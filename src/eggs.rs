@@ -157,6 +157,10 @@ impl Game {
         const SHAPE: u32 = 73;
         const QUALITY: u16 = 36;
         let Some(idx) = self.map().items.iter().position(|it| it.in_world() && it.shape == SHAPE && it.quality == QUALITY) else { return };
+        // the script lets him get up: the getting up a new game begins
+        // with otherwise (main.rs) goes, or he would get up twice
+        let dir = self.mover(crate::game::AVATAR).dir;
+        self.actors.insert(crate::game::AVATAR, crate::actor::Mover::new(dir));
         self.map_mut().items[idx].hatched = true;
         let id = self.map().items[idx].id;
         self.call_event(id, EVENT_HATCH, &[]);

@@ -337,9 +337,12 @@ impl Game {
         }
     }
 
-    /// The heading of the quick save's and the autosave's place.
+    /// The heading of the places that are no entry: "The Beginning...",
+    /// the quick save and the autosave.
     fn special_label(&self, slot: usize) -> &'static str {
         match (slot, self.language) {
+            (BEGINNING, 'F') => "D\u{82}but",
+            (BEGINNING, _) => "Start",
             (QUICK_SLOT, 'G') => "Schnellspeicher",
             (QUICK_SLOT, 'F') => "Rapide",
             (QUICK_SLOT, _) => "Quicksave",
@@ -472,8 +475,6 @@ impl Game {
                         x += f.width + 1;
                     }
                 }
-                // ("The Beginning..." has only its name, as in the original)
-                None if s == BEGINNING => {}
                 None => {
                     let label = self.special_label(s);
                     if let Some(f) = self.handwriting(label) {
