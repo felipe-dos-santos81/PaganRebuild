@@ -335,7 +335,10 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
                 // someone stops him on the way and asks something: the
                 // next steps answer, then "reach" again goes on
                 if game.ask.is_some() {
-                    let who = game.ask.as_ref().map_or(0, |a| a.0);
+                    // (the number in `ask` is the waiting process; who asks
+                    // is the item that process runs for)
+                    let pid = game.ask.as_ref().map_or(0, |a| a.0);
+                    let who = game.proc_index(pid).map_or(0, |i| game.scripts.procs[i].item);
                     let name = crate::places::PEOPLE.iter().find(|p| p.0 == who).map_or(String::new(), |p| format!(" ({})", p.1));
                     println!("{cmd}: stopped by a question of {who}{name} after about {spent} ticks");
                     return Ok(Flow::Done);
