@@ -1,0 +1,5 @@
+# Running into a slope (the edge of the higher meadow east of the docks,
+# map 3): he stops in his standing pose, not frozen in mid-stride
+args: --map 3 --pos 18959,4815,16
+do: t5;w4r:12;w0r:30;dirs:1
+expect: dirs: 1 dir 0 anim 2 frame 0

@@ -354,12 +354,18 @@ impl Mover {
                     }
                 }
                 StepResult::Blocked => {
-                    self.playing = None;
+                    let was = self.playing.take().map(|p| p.id);
                     self.last_anim = STAND;
                     self.first_step = true;
                     // a jump that runs into something in mid-air falls down
                     if self.in_air(item, map, infos, &info) {
                         self.falling = Some(0);
+                        return true;
+                    }
+                    // A walk or run into a wall or a thing: he stands. (The
+                    // picture of the step he was in stayed, and he stood
+                    // frozen in mid-stride until he was sent on.)
+                    if matches!(was, Some(WALK | RUN)) && !self.hold && self.show_stand_pose(item, anims) {
                         return true;
                     }
                     return changed;
@@ -616,6 +622,26 @@ impl Mover {
     }
     /// The pose of a standing jump coming down (its first frame in the air
     /// going down), for a fall.
+    /// Shows the first picture of his standing pose (in a fight his
+    /// stance), facing the way he faces. False if that is shown already
+    /// or the shape has none.
+    fn show_stand_pose(&mut self, item: &mut Item, anims: &mut AnimDat) -> bool {
+        let pose = self.stand_anim;
+        let Some(a) = anims.action(item.shape, pose).or_else(|| anims.action(item.shape, STAND)) else { return false };
+        if a.size == 0 {
+            return false;
+        }
+        let f = *a.frame(self.dir, 0);
+        let flags = if f.flipped() { item.flags | FLG_FLIPPED } else { item.flags & !FLG_FLIPPED };
+        if item.frame == f.frame && item.flags == flags {
+            return false;
+        }
+        item.frame = f.frame;
+        item.flags = flags;
+        self.shown = (pose, 0);
+        true
+    }
+
     fn show_fall_pose(&mut self, item: &mut Item, anims: &mut AnimDat) {
         let Some(a) = anims.action(item.shape, JUMP_UP) else { return };
         let Some(n) = (0..a.size).find(|&n| { let f = a.frame(self.dir, n); !f.on_ground() && f.delta_z < 0 }) else { return };
