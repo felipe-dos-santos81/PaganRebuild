@@ -160,7 +160,9 @@ impl Game {
         // the script lets him get up: the getting up a new game begins
         // with otherwise (main.rs) goes, or he would get up twice
         let dir = self.mover(crate::game::AVATAR).dir;
-        self.actors.insert(crate::game::AVATAR, crate::actor::Mover::new(dir));
+        let mut mover = crate::actor::Mover::new(dir);
+        mover.auto_stand = true;
+        self.actors.insert(crate::game::AVATAR, mover);
         self.map_mut().items[idx].hatched = true;
         let id = self.map().items[idx].id;
         self.call_event(id, EVENT_HATCH, &[]);

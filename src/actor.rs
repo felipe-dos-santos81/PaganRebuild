@@ -442,7 +442,10 @@ impl Mover {
                 // standing still, the next step starts with the first foot
                 // again; not between the steps a script walks one by one
                 // (each began with the same foot: a stiff march)
-                if (!self.in_scene || self.settle) && (self.auto_stand || self.stand_anim != STAND) {
+                // (the Avatar always: a savegame whose mover had lost the
+                // flag left him with his legs as in mid-run when he stopped)
+                let auto_stand = self.auto_stand || item.id == crate::game::AVATAR;
+                if (!self.in_scene || self.settle) && (auto_stand || self.stand_anim != STAND) {
                     self.settle = false;
                     self.first_step = true;
                     self.start(self.stand_anim, item, anims);

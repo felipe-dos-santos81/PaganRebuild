@@ -1,0 +1,5 @@
+# A new game (the start egg lets him get up): running and letting go, he
+# stands when the stride is over, not with his legs as in mid-run (the
+# mover put in for the egg had lost "stand when idle")
+do: title:name;titlekey:Hans;titlekey:enter;t400;answer:2;t300;answer:2;t300;answer:2;t300;answer:2;t300;w4r:9;t40;dirs:1
+expect: dirs: 1 dir 4 anim 2
