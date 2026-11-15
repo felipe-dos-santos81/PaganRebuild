@@ -1762,6 +1762,11 @@ impl Game {
         if !use_it && self.look_at_puzzle_spot(id) {
             return;
         }
+        // armour or a weapon in his backpack: "use" puts it on
+        if use_it && self.root_container(id) == AVATAR && self.wears_on_use(id) {
+            self.wear(id);
+            return;
+        }
         self.call_event(id, if use_it { 1 } else { 0 }, &[]);
     }
 

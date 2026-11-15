@@ -204,6 +204,45 @@ impl Game {
         true
     }
 
+    /// The place a thing is worn in (armour, a weapon), not the backpack.
+    pub(crate) fn wear_slot(&self, id: u16) -> Option<i32> {
+        let it = self.map().get(id)?;
+        self.slot_of(it).filter(|&s| s != SLOT_BACKPACK)
+    }
+
+    /// "Use" on armour or a weapon (beyond the original, where it is only
+    /// dragged onto him): the Avatar puts it on. Not his yet (on the
+    /// ground, in a chest), it is taken first, as "take" does it (its
+    /// weight, the owner's eyes); what he wears in its place goes into the
+    /// backpack. False if nothing came of it (the reason is shown).
+    pub fn wear(&mut self, id: u16) -> bool {
+        let Some(slot) = self.wear_slot(id) else { return false };
+        if self.equipped(AVATAR, slot).is_some_and(|w| w.id == id) {
+            return false;
+        }
+        if self.root_container(id) != AVATAR && self.take_into_backpack(id) != Some(true) {
+            return false;
+        }
+        let Some(pack) = self.backpack() else { return false };
+        let old = self.equipped(AVATAR, slot).map(|w| w.id);
+        if let Some(old) = old {
+            let (gx, gy) = (8 + (self.rng.next() % 40) as i32, 8 + (self.rng.next() % 30) as i32);
+            if !self.join_stack(old, pack) && !self.put_in_container(old, pack, gx, gy) {
+                return false;
+            }
+        }
+        if self.equip(AVATAR, id) {
+            let volume = 1.0;
+            self.audio.play_sfx(0x31, 0, false, volume);
+            return true;
+        }
+        // (too heavy after all: what he wore goes back on)
+        if let Some(old) = old {
+            self.equip_weighed(AVATAR, old, false);
+        }
+        false
+    }
+
     /// The player lets an item go over the Avatar or his equipment
     /// window: wear it if possible, otherwise stow it in the backpack.
     pub fn drop_on_avatar(&mut self, id: u16) -> bool {

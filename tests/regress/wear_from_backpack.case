@@ -1,0 +1,4 @@
+# A helmet in the backpack: "use" puts it on
+args: --map 3 --pos 14700,5700,8
+do: t5;pack:843;use:@;t5;worn
+expect: worn 3: id 20311 shape  843

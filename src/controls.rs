@@ -364,7 +364,7 @@ impl Game {
             // to use, as close as "use" has always wanted; to take, as far
             // as the mouse may pick it up (things on a table or a counter
             // the hand reaches were left out)
-            let to_use = gap <= REACH - 16 && self.usable(it.id);
+            let to_use = gap <= REACH - 16 && (self.usable(it.id) || self.wear_slot(it.id).is_some());
             if !to_use && !(carry && self.can_drag(it.id)) {
                 continue;
             }

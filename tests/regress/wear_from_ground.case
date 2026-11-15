@@ -1,0 +1,5 @@
+# Armour on the ground: "use" asks "wear or take"; wear puts it on (body)
+args: --map 3 --pos 14700,5700,8
+do: option:pick_things,on;t5;place:841,0,14730,5700,8;t2;usenear;usemenu:0;t5;worn
+expect: usenear: use or take?
+expect: worn 4: id 20311 shape  841

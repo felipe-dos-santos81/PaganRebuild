@@ -13,6 +13,8 @@ pub struct UseMenu {
     pub item: u16,
     /// The line chosen: 0 use, 1 take.
     pub sel: usize,
+    /// Armour or a weapon: the first line puts it on.
+    pub wear: bool,
 }
 
 const BACK: u32 = 0x1C140C;
@@ -34,11 +36,17 @@ impl Game {
             .filter(|it| it.shape != crate::controls::KEYRING)
             .and_then(|it| self.data.infos.get(it.shape as usize))
             .is_some_and(|si| si.family == crate::shape::FAMILY_CONTAINER);
-        self.options.pick_things && !container && self.portable(id) && self.root_container(id) != AVATAR && self.usable(id)
+        self.options.pick_things && !container && self.portable(id) && self.root_container(id) != AVATAR && (self.usable(id) || self.wear_slot(id).is_some())
+    }
+
+    /// Armour or a weapon without a use of its own: "use" puts it on.
+    pub(crate) fn wears_on_use(&mut self, id: u16) -> bool {
+        self.wear_slot(id).is_some() && !self.usable(id)
     }
 
     pub fn open_use_menu(&mut self, id: u16) {
-        self.ui.use_menu = Some(UseMenu { item: id, sel: 0 });
+        let wear = self.wears_on_use(id);
+        self.ui.use_menu = Some(UseMenu { item: id, sel: 0, wear });
     }
 
     pub fn close_use_menu(&mut self) {
@@ -46,6 +54,10 @@ impl Game {
     }
 
     fn use_menu_lines(&self) -> [&'static str; 2] {
+        // armour and weapons: put on, or take into the backpack
+        if self.ui.use_menu.as_ref().is_some_and(|m| m.wear) {
+            return self.tr([["Anlegen", "Nehmen"], ["Porter", "Prendre"], ["Wear", "Take"]]);
+        }
         self.tr([["Benutzen", "Nehmen"], ["Utiliser", "Prendre"], ["Use", "Take"]])
     }
 
@@ -76,7 +88,9 @@ impl Game {
         // a walk the player sent him on ends here
         self.cancel_approach();
         let in_world = self.map().get(id).is_some_and(|it| it.in_world());
-        let done = if m.sel == 0 {
+        let done = if m.sel == 0 && m.wear {
+            self.wear(id)
+        } else if m.sel == 0 {
             // (in the world it may lie further than "use" reaches - on a
             // table the hand reaches: he steps up to it first, as after a
             // click)

@@ -1,0 +1,7 @@
+# A weapon on the ground put on with "use" while he holds another: the
+# new one is held, the old one goes into the backpack
+args: --cheat --map 3 --pos 14700,5700,8
+do: option:pick_things,on;t5;place:819,0,14730,5700,8;t2;usenear;usemenu:0;t5;worn;item:20311
+expect: worn 6: id 20317 shape  819
+expect: id 20311 shape  822 frame   0 at 0,
+expect: parent 20310
