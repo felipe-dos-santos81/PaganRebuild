@@ -292,8 +292,12 @@ impl Game {
                         chosen = Some(entries[n as usize - 1]);
                     }
                 }
-                // the entry under the pointer is selected, a click chooses it
-                let hovered = input.mouse.and_then(|at| self.entry_at(at, entries.len(), surf_w, surf_h)).map(|r| entries[r]);
+                // the entry under the pointer is selected when the pointer
+                // moves, a click chooses it (a pointer resting on an entry
+                // took the selection back from the keys and the pad's cross
+                // at every picture: up and down did nothing)
+                let moved = input.mouse != std::mem::replace(&mut self.ui.title_mouse, input.mouse);
+                let hovered = input.mouse.filter(|_| moved || input.click).and_then(|at| self.entry_at(at, entries.len(), surf_w, surf_h)).map(|r| entries[r]);
                 if let Some(e) = hovered {
                     if let Some(Title::Menu { selected }) = &mut self.ui.title {
                         *selected = e;

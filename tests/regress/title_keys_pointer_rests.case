@@ -1,0 +1,6 @@
+# The main menu with the pointer resting on an entry: the cross and the
+# arrow keys still move the selection (the pointer took it back at every
+# picture); moving the pointer selects what it is on
+do: title:menu;titlekey:/360,160;titlekey:down/360,160;titlekey:down/360,160;titlekey:/360,175
+expect: title: main menu, entry 3
+expect: title: main menu, entry 2

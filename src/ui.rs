@@ -52,6 +52,8 @@ pub struct Ui {
     pub use_menu: Option<crate::usemenu::UseMenu>,
     /// The main menu, the name entry, a movie or the credits.
     pub title: Option<crate::title::Title>,
+    /// Where the pointer was over the main menu the picture before.
+    pub title_mouse: Option<(i32, i32)>,
     /// The large map with the list of places (option "guide", key O).
     pub worldmap: Option<crate::worldmap::WorldMap>,
 }

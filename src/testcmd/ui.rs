@@ -70,9 +70,17 @@ fn cmd_title(game: &mut Game, surf: &mut Surface, _opts: &mut ViewOptions, _st: 
     Ok(Flow::Done)
 }
 
-/// titlekey:up|down|enter|esc|back|<text>   input for the title
-fn cmd_titlekey(game: &mut Game, surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, _cmd: &str) -> Result<Flow, String> {
+/// titlekey:up|down|enter|esc|back|<text>[/<x>,<y>]   input for the title
+/// (with /: the pointer rests there meanwhile)
+fn cmd_titlekey(game: &mut Game, surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let mut input = title::Input::default();
+    let arg = match arg.rsplit_once('/') {
+        Some((a, at)) => {
+            input.mouse = Some(point(at, cmd)?);
+            a
+        }
+        None => arg,
+    };
     match arg {
         "up" => input.up = true,
         "down" => input.down = true,
