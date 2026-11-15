@@ -354,6 +354,12 @@ impl Game {
             if it.id == 0 || it.id == AVATAR || !it.in_world() || (it.z - avatar.z).abs() > REACH_HEIGHT || ceiling.is_some_and(|c| it.z >= c) {
                 continue;
             }
+            // Nor below the floor he stands on: that is the room downstairs
+            // (a book and a tankard right under his feet were picked). A
+            // floor up here is a roof to what lies below it.
+            if it.z < avatar.z && crate::game::roof_above(self.map(), &self.data.infos, &it).is_some_and(|r| r <= avatar.z) {
+                continue;
+            }
             let gap = self.box_gap(&avatar, &it);
             // to use, as close as "use" has always wanted; to take, as far
             // as the mouse may pick it up (things on a table or a counter

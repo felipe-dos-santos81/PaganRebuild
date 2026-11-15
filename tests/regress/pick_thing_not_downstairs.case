@@ -1,0 +1,8 @@
+# Cycle through things upstairs in a house in Tenebrae (map 41): only the books on his own floor, not the Grim Book, the tankard and the chair in the room below, right under his feet (within reach by height)
+args: --map 41 --pos 14532,2108,96
+do: t5;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1
+expect: pickthing name: Some("Kith Venom")
+expect: pickthing name: Some("Rhian")
+reject: Grim Book
+reject: tankard
+reject: wooden chair
