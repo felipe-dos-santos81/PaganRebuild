@@ -9,7 +9,7 @@
 use super::*;
 use crate::game::AVATAR;
 use crate::map::WorldBox;
-use crate::hash::HashSet;
+use crate::hash::{HashMap, HashSet};
 
 /// After this many ticks a breach counts (shorter ones are part of normal
 /// play: a jump, a step down).
@@ -23,6 +23,14 @@ const SAME_PLACE: i32 = 1024;
 const PER_KIND: usize = 5;
 /// The savegame slot the bot goes back to after a death.
 const CHECKPOINT: usize = 899;
+/// How often (ticks) the fixed things of the map are looked over.
+const FIXED_TICKS: u32 = 30;
+/// How far (height) a fixed thing has to have come down to count as
+/// fallen (a few units are a fire's embers or a bubble settling).
+const FELL: i32 = 8;
+/// Lava or water this soon (ticks) after a walk the player clicked is the
+/// walk's doing (he slides on a little when it ends).
+const CLICK_WALK_TICKS: u32 = 30;
 
 pub(super) struct Rng(u64);
 
@@ -65,6 +73,16 @@ pub(super) struct Watch {
     maps: HashSet<usize>,
     /// Script classes that ran (what of the game's scripts got to work).
     classes: HashSet<u16>,
+    /// The map whose fixed things are in `fixed` (None: look again).
+    fixed_map: Option<usize>,
+    /// Where the fixed things (floor, walls, beams) lay when he came to
+    /// the map: they never move, whatever happens (a floor tile a script
+    /// threw by mistake left a hole in the street).
+    fixed: HashMap<u16, (u32, i32, i32, i32)>,
+    /// Ticks since a walk the player clicked was last under way.
+    since_click_walk: u32,
+    /// He stood in lava or water the tick before.
+    in_danger: bool,
 }
 
 /// The size of a place for the coverage (a room, a stretch of street).
@@ -72,12 +90,19 @@ const CELL: i32 = 256;
 
 impl Watch {
     pub fn new() -> Watch {
-        Watch { step: 0, found: Vec::new(), last: String::new(), floating: 0, inside: 0, held: 0, saves: 0, cells: HashSet::default(), maps: HashSet::default(), classes: HashSet::default() }
+        Watch {
+            step: 0, found: Vec::new(), last: String::new(), floating: 0, inside: 0, held: 0, saves: 0, cells: HashSet::default(), maps: HashSet::default(), classes: HashSet::default(),
+            fixed_map: None, fixed: HashMap::default(), since_click_walk: u32::MAX, in_danger: false,
+        }
     }
 
-    /// Back at the checkpoint after a death: what was counted up starts again.
+    /// Back at the checkpoint after a death: what was counted up starts again
+    /// (and the fixed things are as the savegame has them).
     pub fn restart(&mut self) {
         (self.floating, self.inside, self.held) = (0, 0, 0);
+        self.fixed_map = None;
+        self.since_click_walk = u32::MAX;
+        self.in_danger = false;
     }
 
     /// Standing fine: a moment to save a checkpoint.
@@ -177,6 +202,50 @@ impl Watch {
         if av.z < 0 || av.z > 255 {
             self.report(game, "avatar-height", format!("z {}", av.z));
         }
+
+        // a fixed thing (floor, wall, beam) that fell from its place.
+        // (Doors are fixed too and swing aside, lifts and sinking floors
+        // (family 1) go up and down by script: only the same thing right
+        // below where it lay counts; a number now held by another shape is
+        // another thing.)
+        if self.fixed_map != Some(game.cur_map) {
+            self.fixed = Self::fixed_things(game).collect();
+            self.fixed_map = Some(game.cur_map);
+        } else if game.tick.is_multiple_of(FIXED_TICKS) {
+            let now: Vec<(u16, (u32, i32, i32, i32))> = Self::fixed_things(game).collect();
+            let mut fell = Vec::new();
+            for (id, n) in now {
+                let was = self.fixed.insert(id, n);
+                if let Some(w) = was.filter(|w| (w.0, w.1, w.2) == (n.0, n.1, n.2) && n.3 <= w.3 - FELL) {
+                    fell.push((id, n.0, (n.1, n.2), w.3, n.3));
+                }
+            }
+            for (id, shape, (x, y), from, to) in fell {
+                self.report(game, "fixed-fell", format!("item {id} shape {shape} at {x},{y} from height {from} to {to}"));
+            }
+        }
+
+        // a walk the player clicked takes him into lava or water (the way
+        // goes too close along the shore, or he slides on at a corner).
+        // Reported while he still lives, so that the savegame shows it.
+        let o = &game.orders;
+        let click_walk = o.walk_level.is_some() || o.approaching.is_some() || o.climb_goal.is_some();
+        self.since_click_walk = if click_walk { 0 } else { self.since_click_walk.saturating_add(1) };
+        let danger = pi.on_fire || pi.on_water || pi.touches_sea;
+        if danger && free && !self.in_danger && self.since_click_walk <= CLICK_WALK_TICKS {
+            let what = if pi.on_fire { "fire" } else { "water" };
+            let ground = pi.land_shape.map_or("?".to_string(), |s| format!("shape {s}"));
+            self.report(game, "click-walk-into-danger", format!("into {what} ({ground}) {} ticks after the walk, hp {hp}", self.since_click_walk));
+        }
+        self.in_danger = danger;
+    }
+
+    /// The fixed things of family 0 (no script moves them) lying in the
+    /// world of the current map: number, shape and place.
+    fn fixed_things(game: &Game) -> impl Iterator<Item = (u16, (u32, i32, i32, i32))> + '_ {
+        game.map().items.iter()
+            .filter(|it| it.id != 0 && it.in_world() && !it.dead && game.data.infos.get(it.shape as usize).is_some_and(|si| si.fixed && si.family == 0))
+            .map(|it| (it.id, (it.shape, it.x, it.y, it.z)))
     }
 
 }
