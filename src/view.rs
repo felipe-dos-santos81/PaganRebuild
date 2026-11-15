@@ -228,15 +228,17 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
         .collect();
     paint_all(surf, ids, &jobs, pal);
     drop(jobs);
-    if let Some((figure, dir, _)) = opts.climbing {
-        paint_climber(surf, ids, items, infos, shapes, pal, overlay, (cam_sx, cam_sy), figure, dir);
+    if let Some((figure, dir, from)) = opts.climbing {
+        paint_climber(surf, ids, items, infos, shapes, pal, overlay, (cam_sx, cam_sy), figure, dir, from);
     }
     order.iter().map(|si| Painted { index: si.id, sx: si.sx, sy: si.sy, shape: si.shape, frame: si.frame, flipped: si.flipped }).collect()
 }
 
-/// For a figure climbing onto a ledge: is `t` part of the ledge (its edge,
-/// roof or floor up at about the figure's head, ahead of it and not
-/// clearly in front of it)?
+/// For a figure climbing onto a ledge from height `from`: is `t` part of
+/// the ledge (its edge, roof or floor up at about the figure's head, ahead
+/// of it and not clearly in front of it)? Its top counts, not its foot: a
+/// railing stands on the bridge he climbs from, and he went into it as he
+/// pulled himself up onto it.
 ///
 /// The ledge is what lies ahead, and the edge right over him that he
 /// pulls himself over: the eaves of the roof he climbs onto overhang the
@@ -244,12 +246,12 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
 /// meet, the eaves of the other one hang over that corner too, but run
 /// along his way (or lie beside it): they are not what he climbs, and he
 /// stays hidden behind them.
-fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &ShapeInfo, dir: u8) -> bool {
+fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &ShapeInfo, dir: u8, from: i32) -> bool {
     const DIRS: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
     /// How far the ledge may reach back over the figure's box.
     const REACH: i32 = 32;
     let (dx, dy) = DIRS[dir as usize % 8];
-    let (txd, tyd, _) = t_info.footpad(t.flags & FLG_FLIPPED != 0);
+    let (txd, tyd, tzd) = t_info.footpad(t.flags & FLG_FLIPPED != 0);
     let (fxd, fyd, fzd) = figure_info.footpad(figure.flags & FLG_FLIPPED != 0);
     let (t_left, t_far) = (t.x - txd, t.y - tyd);
     let (f_left, f_far, f_top) = (figure.x - fxd, figure.y - fyd, figure.z + fzd);
@@ -258,7 +260,7 @@ fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &Shap
     // over him, across his way (climbing along x: a strip along y)
     let over = t.x > f_left && t.y > f_far && ((dy == 0 && tyd > txd) || (dx == 0 && txd > tyd));
     let standing = t_info.creature && !t_info.lies_in(t.frame);
-    (ahead_x || ahead_y || over) && !standing && t.z > figure.z && t.z <= f_top + 16 && t_far < figure.y && t_left < figure.x
+    (ahead_x || ahead_y || over) && !standing && t.z + tzd > from && t.z <= f_top + 16 && t_far < figure.y && t_left < figure.x
 }
 
 /// The figure climbing onto a ledge is seen in front of it: its picture
@@ -271,7 +273,7 @@ fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &Shap
 /// the ledge in the order instead closed circles with what stood between
 /// the two: a wall beside him was painted over the roof while he climbed.)
 fn paint_climber(surf: &mut Surface, ids: &mut [u32], items: &[Item], infos: &[ShapeInfo], shapes: &mut Shapes, pal: &Palette,
-                 overlay: Option<&Overlay>, (cam_sx, cam_sy): (i32, i32), figure: usize, dir: u8) {
+                 overlay: Option<&Overlay>, (cam_sx, cam_sy): (i32, i32), figure: usize, dir: u8, from: i32) {
     let Some(fig) = items.get(figure) else { return };
     let Some(fig_info) = infos.get(fig.shape as usize) else { return };
     // (an invisible Avatar is only faintly there: not brought forward)
@@ -280,7 +282,7 @@ fn paint_climber(surf: &mut Surface, ids: &mut [u32], items: &[Item], infos: &[S
     }
     let ledge: Vec<bool> = items
         .iter()
-        .map(|t| t.in_world() && infos.get(t.shape as usize).is_some_and(|info| climbed_ledge(t, info, fig, fig_info, dir)))
+        .map(|t| t.in_world() && infos.get(t.shape as usize).is_some_and(|info| climbed_ledge(t, info, fig, fig_info, dir, from)))
         .collect();
     // (placed as the sorter places figures)
     let (sx, sy) = (crate::sorter::figure_sx(fig.x, fig.y) - cam_sx, crate::sorter::figure_sy(fig.x, fig.y, fig.z) - cam_sy);

@@ -1,0 +1,6 @@
+# Click on the railing of the bridge in Tenebrae (map 40) right beside the
+# Avatar: he pulls himself up onto it in front of it, not into it (the
+# railing stands on the bridge he climbs from; it hid his body)
+args: --map 40 --pos 12898,12202,48
+do: t5;walkclick:300,186;t3;pickat:304,191
+expect: pickat 304,191: id     1 shape    1 frame 995
