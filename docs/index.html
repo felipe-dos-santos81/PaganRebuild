@@ -111,6 +111,9 @@ kbd + kbd { margin-left: 3px; }
 .tile .keys { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .tile .what { font-size: .93rem; color: var(--text); }
 .note { color: var(--muted); font-size: .95rem; }
+kbd.pad { min-width: 1.9em; border-radius: 999px; }
+.controls .row.key { background: rgba(232,119,46,.14); border-left: 3px solid var(--ember); }
+.pad-head { margin: 26px 0 4px; }
 
 .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 26px 0; }
 .shots figure { margin: 0; }
@@ -336,6 +339,8 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 10
       <h3>Steuerung und Spielablauf</h3>
       <ul>
         <li>Moderne Steuerung mit der Maus (siehe <a href="#steuerung">Steuerung</a>)</li>
+        <li>Spielbar mit dem Gamepad, auch auf dem Steam Deck (siehe <a href="#gamepad">Gamepad</a>)</li>
+        <li>Dinge in Reichweite durchschalten und benutzen, auch in offenen Behältern</li>
         <li>Automatisches Klettern: beim Laufen per Klick erklettert der Avatar die Kanten auf dem Weg</li>
         <li>Schnellzugriff auf die Tränke über die Zahlentasten</li>
         <li>Gegner bemerken den Avatar früher</li>
@@ -386,6 +391,8 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 10
       <h3>Controls and gameplay</h3>
       <ul>
         <li>Modern mouse controls (see <a href="#controls">Controls</a>)</li>
+        <li>Playable with a gamepad, also on the Steam Deck (see <a href="#gamepad-en">Gamepad</a>)</li>
+        <li>Cycle through the things in reach and use them, also in open containers</li>
         <li>Automatic climbing: walking by click, the Avatar climbs the ledges on the way</li>
         <li>Quick access to potions with the number keys</li>
         <li>Enemies notice the Avatar sooner</li>
@@ -400,8 +407,8 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 10
 
 <section class="slab">
   <h2 id="steuerung"><span lang="de">Steuerung</span><span lang="en" id="controls">Controls</span></h2>
-  <p class="note" lang="de">So arbeitet die moderne Steuerung (voreingestellt). Mit der klassischen Steuerung verhalten sich die Maustasten wie im Original. Tasten und Gamepad lassen sich im Optionsmenü neu belegen.</p>
-  <p class="note" lang="en">This is how the modern controls work (the default). With the classic controls the mouse buttons work as in the original. Keys and gamepad can be reassigned in the options menu.</p>
+  <p class="note" lang="de">So arbeitet die moderne Steuerung (voreingestellt). Mit der klassischen Steuerung verhalten sich die Maustasten wie im Original. Tasten und Gamepad lassen sich im Optionsmenü neu belegen. Das Gamepad steht <a href="#gamepad">weiter unten</a>.</p>
+  <p class="note" lang="en">This is how the modern controls work (the default). With the classic controls the mouse buttons work as in the original. Keys and gamepad can be reassigned in the options menu. The gamepad is <a href="#gamepad-en">further down</a>.</p>
 
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
@@ -476,6 +483,51 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 10
     </div>
   </div>
 
+  <h3 class="pad-head" lang="de" id="gamepad">Gamepad</h3>
+  <p class="note" lang="de">Ein Xbox-kompatibler Controller oder das Steam Deck (Standard-Gamepad-Layout in Steam). Der Zeiger blendet sich aus, solange er nicht gebraucht wird; der rechte Stick holt ihn zurück.</p>
+  <div class="controls" lang="de">
+    <div>
+      <h4>Unterwegs</h4>
+      <dl>
+        <div class="row"><dt><kbd>Linker Stick</kbd></dt><dd>Gehen; <kbd>L3</kbd> (Stick drücken) schaltet Rennen ein und aus</dd></div>
+        <div class="row"><dt><kbd>Rechter Stick</kbd></dt><dd>Zeiger bewegen</dd></div>
+        <div class="row"><dt><kbd class="pad">A</kbd></dt><dd>Das Nächstliegende bzw. das gewählte Ding benutzen; was man benutzen und tragen kann, fragt „Benutzen / Nehmen“; in Szenen: weiter</dd></div>
+        <div class="row"><dt><kbd>&uarr;</kbd><span class="or">/</span><kbd>&darr;</kbd></dt><dd>Ding in Reichweite wählen (Option „Dinge durchschalten“)</dd></div>
+        <div class="row"><dt><kbd class="pad">B</kbd></dt><dd>Geradeaus springen, an einer Kante hochklettern</dd></div>
+        <div class="row key"><dt><kbd>Rechter Stick</kbd><span class="or">+</span><kbd>LT</kbd><span class="ctx">freier Boden</span></dt><dd><strong>Zum Zeiger springen:</strong> mit dem rechten Stick zielen, dann <kbd>LT</kbd>. So kommt man über Abgründe und auf schmale Stellen, die man geradeaus nicht trifft.</dd></div>
+        <div class="row"><dt><kbd>RT</kbd></dt><dd>Wie die linke Maustaste: zum Zeiger laufen, benutzen, angreifen</dd></div>
+        <div class="row"><dt><kbd>LT</kbd></dt><dd>Wie die rechte Maustaste: Gegenstand in den Rucksack, auf freiem Boden dorthin springen</dd></div>
+        <div class="row"><dt><kbd class="pad">Y</kbd><span class="or">/</span><kbd>R3</kbd></dt><dd>Rucksack / Benutzbares hervorheben</dd></div>
+      </dl>
+      <h4>Kampf</h4>
+      <dl>
+        <div class="row"><dt><kbd>LB</kbd></dt><dd>Waffe ziehen / wegstecken</dd></div>
+        <div class="row"><dt><kbd class="pad">X</kbd></dt><dd>Den nächsten Gegner schlagen; gehalten: weiter schlagen</dd></div>
+        <div class="row"><dt><kbd>&larr;</kbd></dt><dd>Treten</dd></div>
+        <div class="row"><dt><kbd>RB</kbd><span class="ctx">halten</span></dt><dd>Blocken</dd></div>
+      </dl>
+    </div>
+    <div>
+      <h4>Behälter</h4>
+      <dl>
+        <div class="row"><dt><kbd>&larr;</kbd><span class="or">/</span><kbd>&rarr;</kbd></dt><dd>Ding in den offenen Fenstern wählen</dd></div>
+        <div class="row"><dt><kbd>&uarr;</kbd><span class="or">/</span><kbd>&darr;</kbd></dt><dd>Eine Reihe höher / tiefer</dd></div>
+        <div class="row"><dt><kbd class="pad">X</kbd></dt><dd>Zwischen Rucksack und Behälter verschieben (Waffe weggesteckt)</dd></div>
+        <div class="row"><dt><kbd class="pad">B</kbd></dt><dd>Fenster schließen; beim Wählen eines Ziels: abbrechen</dd></div>
+      </dl>
+      <h4>Menüs und Gespräche</h4>
+      <dl>
+        <div class="row"><dt><kbd>Start</kbd></dt><dd>Hauptmenü</dd></div>
+        <div class="row"><dt><kbd>Back</kbd></dt><dd>Tagebuch</dd></div>
+        <div class="row"><dt><kbd>Back</kbd><span class="or">+</span><kbd>&uarr;</kbd><span class="or">/</span><kbd>&darr;</kbd></dt><dd>Zoom</dd></div>
+        <div class="row"><dt><kbd>Back</kbd><span class="or">+</span><kbd class="pad">Y</kbd></dt><dd>Schnell speichern</dd></div>
+        <div class="row"><dt><kbd>Steuerkreuz</kbd><span class="or">/</span><kbd>Linker Stick</kbd></dt><dd>In Menüs, Büchern und Gesprächen wählen</dd></div>
+        <div class="row"><dt><kbd class="pad">A</kbd><span class="or">/</span><kbd class="pad">B</kbd></dt><dd>Bestätigen / zurück</dd></div>
+        <div class="row"><dt><kbd>LB</kbd><span class="or">/</span><kbd>RB</kbd></dt><dd>Seiten blättern</dd></div>
+      </dl>
+    </div>
+  </div>
+
   <div class="controls" lang="en">
     <div>
       <h3>Exploring</h3>
@@ -537,6 +589,51 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 10
         <div class="tile"><div class="keys"><kbd>G</kbd></div><div class="what">Graphics filter</div></div>
         <div class="tile"><div class="keys"><kbd>F12</kbd></div><div class="what">Screenshot</div></div>
       </div>
+    </div>
+  </div>
+
+  <h3 class="pad-head" lang="en" id="gamepad-en">Gamepad</h3>
+  <p class="note" lang="en">An Xbox-compatible controller or the Steam Deck (standard gamepad layout in Steam). The pointer hides while it is not needed; the right stick brings it back.</p>
+  <div class="controls" lang="en">
+    <div>
+      <h4>Exploring</h4>
+      <dl>
+        <div class="row"><dt><kbd>Left stick</kbd></dt><dd>Walk; <kbd>L3</kbd> (press the stick) switches running on and off</dd></div>
+        <div class="row"><dt><kbd>Right stick</kbd></dt><dd>Move the pointer</dd></div>
+        <div class="row"><dt><kbd class="pad">A</kbd></dt><dd>Use the nearest or the picked thing; things one can both use and carry ask "Use / Take"; in scenes: go on</dd></div>
+        <div class="row"><dt><kbd>&uarr;</kbd><span class="or">/</span><kbd>&darr;</kbd></dt><dd>Pick a thing in reach (option "Cycle through things")</dd></div>
+        <div class="row"><dt><kbd class="pad">B</kbd></dt><dd>Jump straight ahead, climb up at a ledge</dd></div>
+        <div class="row key"><dt><kbd>Right stick</kbd><span class="or">+</span><kbd>LT</kbd><span class="ctx">open ground</span></dt><dd><strong>Jump to the pointer:</strong> aim with the right stick, then <kbd>LT</kbd>. This is how to cross gaps and land on narrow spots that a jump straight ahead misses.</dd></div>
+        <div class="row"><dt><kbd>RT</kbd></dt><dd>Like the left mouse button: walk to the pointer, use, attack</dd></div>
+        <div class="row"><dt><kbd>LT</kbd></dt><dd>Like the right mouse button: item into the backpack, on open ground jump there</dd></div>
+        <div class="row"><dt><kbd class="pad">Y</kbd><span class="or">/</span><kbd>R3</kbd></dt><dd>Backpack / highlight usable things</dd></div>
+      </dl>
+      <h4>Fight</h4>
+      <dl>
+        <div class="row"><dt><kbd>LB</kbd></dt><dd>Draw / put away the weapon</dd></div>
+        <div class="row"><dt><kbd class="pad">X</kbd></dt><dd>Strike the nearest enemy; held: keep striking</dd></div>
+        <div class="row"><dt><kbd>&larr;</kbd></dt><dd>Kick</dd></div>
+        <div class="row"><dt><kbd>RB</kbd><span class="ctx">hold</span></dt><dd>Block</dd></div>
+      </dl>
+    </div>
+    <div>
+      <h4>Containers</h4>
+      <dl>
+        <div class="row"><dt><kbd>&larr;</kbd><span class="or">/</span><kbd>&rarr;</kbd></dt><dd>Pick a thing in the open windows</dd></div>
+        <div class="row"><dt><kbd>&uarr;</kbd><span class="or">/</span><kbd>&darr;</kbd></dt><dd>One row up / down</dd></div>
+        <div class="row"><dt><kbd class="pad">X</kbd></dt><dd>Move it between the backpack and the container (weapon put away)</dd></div>
+        <div class="row"><dt><kbd class="pad">B</kbd></dt><dd>Close the windows; while picking a target: cancel</dd></div>
+      </dl>
+      <h4>Menus and conversations</h4>
+      <dl>
+        <div class="row"><dt><kbd>Start</kbd></dt><dd>Main menu</dd></div>
+        <div class="row"><dt><kbd>Back</kbd></dt><dd>Journal</dd></div>
+        <div class="row"><dt><kbd>Back</kbd><span class="or">+</span><kbd>&uarr;</kbd><span class="or">/</span><kbd>&darr;</kbd></dt><dd>Zoom</dd></div>
+        <div class="row"><dt><kbd>Back</kbd><span class="or">+</span><kbd class="pad">Y</kbd></dt><dd>Quick save</dd></div>
+        <div class="row"><dt><kbd>D-pad</kbd><span class="or">/</span><kbd>Left stick</kbd></dt><dd>Choose in menus, books and conversations</dd></div>
+        <div class="row"><dt><kbd class="pad">A</kbd><span class="or">/</span><kbd class="pad">B</kbd></dt><dd>Confirm / back</dd></div>
+        <div class="row"><dt><kbd>LB</kbd><span class="or">/</span><kbd>RB</kbd></dt><dd>Turn pages</dd></div>
+      </dl>
     </div>
   </div>
 </section>
