@@ -317,7 +317,8 @@ impl Game {
 
     /// The player draws or puts away the weapon.
     pub fn toggle_combat(&mut self) {
-        if self.stasis || self.state(AVATAR).dead || self.mover(AVATAR).busy() {
+        // (nor while he still lies on the beach at the start)
+        if self.stasis || self.waking || self.state(AVATAR).dead || self.mover(AVATAR).busy() {
             return;
         }
         let on = !self.state(AVATAR).in_combat;

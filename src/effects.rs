@@ -923,13 +923,13 @@ impl Game {
 
     /// The Avatar may be steered by the player.
     pub fn player_in_control(&self) -> bool {
-        !self.stasis && self.ask.is_none() && !self.inputs.contains_key(&AVATAR)
+        !self.stasis && !self.waking && self.ask.is_none() && !self.inputs.contains_key(&AVATAR)
     }
 
     /// The player may give the Avatar a new order: as `player_in_control`,
     /// but a walk the player sent him on (a click, going for an enemy,
     /// climbing on the way) does not count - a new order replaces it.
     pub fn player_may_order(&self) -> bool {
-        !self.stasis && self.ask.is_none() && (!self.inputs.contains_key(&AVATAR) || self.orders.approaching.is_some() || self.orders.climb_goal.is_some())
+        !self.stasis && !self.waking && self.ask.is_none() && (!self.inputs.contains_key(&AVATAR) || self.orders.approaching.is_some() || self.orders.climb_goal.is_some())
     }
 }

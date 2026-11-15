@@ -1082,6 +1082,7 @@ impl Game {
                 // is his own again (see hatch_start_egg)
                 if id == AVATAR && action == crate::anim::STAND_UP {
                     mover.hold = false;
+                    self.waking = false;
                 }
                 let ok = mover.play(action, &it, &mut self.data.anims);
                 self.actors.insert(id, mover);

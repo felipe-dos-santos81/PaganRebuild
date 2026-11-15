@@ -419,6 +419,9 @@ pub struct Game {
     /// A new game that has not begun yet: when it begins (the name
     /// written), the start egg hatches (see `hatch_start_egg`).
     pub fresh_start: bool,
+    /// The Avatar lies on the beach until the start egg's script lets him
+    /// get up: the player cannot move him yet (not saved).
+    pub waking: bool,
     pub options: crate::menu::Options,
     /// 'E', 'G' or 'F': language of the game data.
     pub language: char,
@@ -571,6 +574,7 @@ impl Game {
             audio: crate::audio::Audio::new(&lang_dir.join("SOUND"), initial.to_ascii_uppercase(), sound, settings.0, settings.1.better_music, settings.1.album_music),
             restart: false,
             fresh_start: false,
+            waking: false,
             options: settings.1,
             language: initial.to_ascii_uppercase(),
             name_probe: None,

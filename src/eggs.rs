@@ -166,6 +166,8 @@ impl Game {
         // stood up at once and could be walked off before that
         mover.hold = true;
         self.actors.insert(crate::game::AVATAR, mover);
+        // (nor any button: one made him stand up at once)
+        self.waking = true;
         self.map_mut().items[idx].hatched = true;
         let id = self.map().items[idx].id;
         self.call_event(id, EVENT_HATCH, &[]);

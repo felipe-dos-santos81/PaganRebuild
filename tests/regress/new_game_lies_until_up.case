@@ -1,0 +1,7 @@
+# A new game: while the Avatar lies on the beach (until the start egg's
+# script lets him get up) no button gets him up or moves him - jumping,
+# drawing the weapon, using, walking; then he gets up and faces Devon
+do: title:name;titlekey:Hans;titlekey:enter;t2;jump;combat;usenear;w2:10;t4;dirs:1;t400;dirs:1;where:1
+expect: dirs: 1 dir 0 anim 2 frame 697
+expect: dirs: 1 dir 5 anim 2
+expect: where 1: 14527,5887,8
