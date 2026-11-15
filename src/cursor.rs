@@ -71,6 +71,9 @@ impl Cursor {
 pub struct PointerState {
     /// A window is held with the mouse.
     pub moving_window: bool,
+    /// Played with the gamepad, the pointer is put away (see
+    /// `Play::pointer_pass`).
+    pub put_away: bool,
 }
 
 impl Game {
@@ -78,6 +81,12 @@ impl Game {
     /// (a movie is playing).
     pub fn cursor_frame(&mut self, at: (i32, i32), state: PointerState) -> Option<usize> {
         use crate::title::Title;
+        // put away while the pad is played with, unless it is needed: a
+        // target to pick, a window or a thing held
+        let needed = self.ui.targeting.is_some() || state.moving_window || self.drag_feedback(at.0, at.1) != crate::drag::DragFeedback::None;
+        if state.put_away && !needed {
+            return None;
+        }
         match &self.ui.title {
             Some(Title::Movie { .. }) => return None,
             Some(Title::Name { .. }) => return Some(QUILL),

@@ -193,6 +193,13 @@ pub struct Play {
     gump_held: Option<(u16, i32, i32)>,
     /// Dragging a thing over a page arrow of the backpack: which arrow, since when.
     arrow_hover: Option<(i32, Instant)>,
+    /// The pointer is put away: played with the pad (see `pointer_pass`).
+    pointer_away: bool,
+    /// Where the pointer was after the last pass (a move of the mouse
+    /// brings it back), and when the right stick last moved it (if it was
+    /// that, not the mouse).
+    pointer_at: Option<(f32, f32)>,
+    pointer_stick: Option<Instant>,
     started: Instant,
     /// The last pictures drawn (five seconds of movement), for F3.
     recent: std::collections::VecDeque<(Vec<u32>, String)>,
@@ -271,6 +278,9 @@ impl Play {
             shift_was_down: false,
             gump_held: None,
             arrow_hover: None,
+            pointer_away: false,
+            pointer_at: None,
+            pointer_stick: None,
             started: Instant::now(),
             recent: std::collections::VecDeque::new(),
             frame_times,
@@ -302,6 +312,7 @@ impl Play {
             self.book_was_open = false;
         }
         self.pad_pass();
+        self.pointer_pass();
         // the presses and releases since the last pass
         let (left_edges, right_edges) = self.window.take_clicks();
         self.fit_view();
@@ -355,6 +366,45 @@ impl Play {
         self.view_keys(modern);
         self.draw_and_show(loop_start)?;
         Ok(Pass::Go)
+    }
+
+    /// Played with the gamepad, the mouse pointer is put away: as soon as
+    /// a button is pressed or the left stick pushed, and a few seconds
+    /// after the right stick last moved it. Moving the mouse or the right
+    /// stick brings it back, and so do the triggers (they are the mouse
+    /// buttons: they act where it points). While it is away, nothing is lit
+    /// up or named under it.
+    fn pointer_pass(&mut self) {
+        use crate::platform::Pad;
+        /// How long the pointer stays after the right stick let it be.
+        const STAY: Duration = Duration::from_secs(4);
+        let window = &self.window;
+        let now = Instant::now();
+        let at = window.get_mouse_pos(MouseMode::Clamp);
+        // (the right stick moves it too: that counts as the stick)
+        let mouse_moved = matches!((self.pointer_at, at), (Some(a), Some(b)) if (a.0 - b.0).abs() + (a.1 - b.1).abs() > 2.0);
+        let (rx, ry) = window.right_stick();
+        let stick_moved = rx * rx + ry * ry > 0.04;
+        let (lx, ly) = window.stick();
+        let pressed = |trigger: bool| window.pad_events().iter().any(|&(p, down)| down && matches!(p, Pad::LT | Pad::RT) == trigger);
+        let pad_played = lx.abs() > 0.5 || ly.abs() > 0.5 || pressed(false);
+        let away = if stick_moved || pressed(true) {
+            self.pointer_stick = Some(now);
+            false
+        } else if mouse_moved {
+            self.pointer_stick = None;
+            false
+        } else if pad_played || self.pointer_stick.is_some_and(|t| now - t > STAY) {
+            self.pointer_stick = None;
+            true
+        } else {
+            self.pointer_away
+        };
+        if away != self.pointer_away {
+            self.pointer_away = away;
+            self.dirty = true;
+        }
+        self.pointer_at = at;
     }
 
     /// The player's keys and the gamepad. In the world the pad's buttons
@@ -519,7 +569,7 @@ impl Play {
     /// The picture of a screen that has the game standing still.
     fn show_still(&mut self) -> Result<(), Box<dyn Error>> {
         self.game.draw(&mut self.surf, &mut self.opts, self.roofs_always);
-        let state = cursor::PointerState { moving_window: self.gump_held.is_some() };
+        let state = cursor::PointerState { moving_window: self.gump_held.is_some(), put_away: self.pointer_away };
         present(&mut self.window, &self.surf, &mut self.shown, &mut self.upscaled, &mut self.game, &self.mouse_pointer, state)?;
         show(&mut self.window, &self.shown, &mut self.upscaled, 1)?;
         self.next_tick = Instant::now() + TICK;
@@ -1314,7 +1364,8 @@ impl Play {
 
     /// Keys for the view and the options that can be switched on the fly.
     fn view_keys(&mut self, modern: bool) {
-        let mouse = mouse_pos(&self.window, MouseMode::Clamp).map(|(x, y)| (x as i32, y as i32));
+        // (the pointer put away points at nothing)
+        let mouse = mouse_pos(&self.window, MouseMode::Clamp).map(|(x, y)| (x as i32, y as i32)).filter(|_| !self.pointer_away);
         let (window, game) = (&self.window, &mut self.game);
         // page down / up: the next or the previous map (for looking around)
         let mut switch = 0i32;
@@ -1478,7 +1529,7 @@ impl Play {
             };
         }
         let t_present = Instant::now();
-        let state = cursor::PointerState { moving_window: self.gump_held.is_some() };
+        let state = cursor::PointerState { moving_window: self.gump_held.is_some(), put_away: self.pointer_away };
         present(&mut self.window, &self.surf, &mut self.shown, &mut self.upscaled, &mut self.game, &self.mouse_pointer, state)?;
         if let Some(fps) = &self.fps {
             if let Some(font) = &self.game.data.font {
