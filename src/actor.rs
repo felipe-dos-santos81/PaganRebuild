@@ -233,6 +233,36 @@ impl Mover {
     /// Would this animation play through from here without running into
     /// anything, and end on solid ground somewhere else? Used to find out
     /// which ledge can be climbed.
+    /// Is there room for the frames of animation `id` in which the actor
+    /// rises into the air (a jump: no ceiling right above, as in rooms
+    /// whose ceiling is at head height, no wall straight ahead)? Only
+    /// those: where it comes down (ground rising ahead, a ledge, over an
+    /// edge) is for the jump itself to sort out. Cheap: one look per frame.
+    pub fn air_clear(&self, id: u32, item: &Item, map: &MapData, infos: &[ShapeInfo], anims: &mut AnimDat) -> bool {
+        let Some(info) = infos.get(item.shape as usize).copied() else { return false };
+        let Some(action) = anims.action(item.shape, id) else { return false };
+        let dir = (self.dir & 7) as usize;
+        let start = WorldBox::of(item, &info);
+        let (mut x, mut y, mut z) = (item.x, item.y, item.z);
+        for n in 0..action.size {
+            let f = action.frame(self.dir, n);
+            if f.delta_z < 0 {
+                break;
+            }
+            x += 4 * X_FACTOR[dir] * f.delta_dir;
+            y += 4 * Y_FACTOR[dir] * f.delta_dir;
+            z += f.delta_z;
+            if f.on_ground() {
+                continue;
+            }
+            let (xd, yd, zd) = info.footpad(f.flipped());
+            if !map.position_info(&WorldBox { x, y, z, xd, yd, zd }, &start, infos, item.id).valid {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn would_succeed(&self, id: u32, item: &Item, map: &MapData, infos: &[ShapeInfo], anims: &mut AnimDat) -> bool {
         let Some(info) = infos.get(item.shape as usize).copied() else { return false };
         let mut probe = Mover::new(self.dir);

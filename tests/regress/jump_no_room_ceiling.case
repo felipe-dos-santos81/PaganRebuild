@@ -1,0 +1,7 @@
+# The jump key under a ceiling at head height (a room of the palace on
+# map 40): there is no room to jump, he used to bump his head and hop on
+# the spot; now he shakes his head and stays where he is
+args: --map 40 --pos 12087,10139,48
+do: t5;jump;t8;where:1
+expect: jump: no room (shakes his head)
+expect: where 1: 12087,10139,48

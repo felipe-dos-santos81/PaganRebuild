@@ -1,0 +1,5 @@
+# The jump key in the open (the cave on map 8, no ceiling, the ground
+# rising a little ahead): he jumps as before
+args: --map 8 --pos 27915,26279,112
+do: t5;jump
+expect: jump: ahead

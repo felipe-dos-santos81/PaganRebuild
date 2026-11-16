@@ -292,6 +292,17 @@ impl Game {
             self.animate(AVATAR, anim::SHAKE_HEAD);
             return "no (shakes his head)";
         }
+        // 5. straight ahead (the jump key, the pad): under a low ceiling or
+        // right at a wall there is no room for it (he bumped his head and
+        // hopped on the spot): he shakes his head instead
+        let room = {
+            let Game { data: crate::gamedata::GameData { infos, anims, .. }, maps, cur_map, actors, .. } = &mut *self;
+            actors.get(&AVATAR).is_some_and(|m| m.air_clear(anim::JUMP, &av, &maps[cur_map], infos, anims))
+        };
+        if !room {
+            self.animate(AVATAR, anim::SHAKE_HEAD);
+            return "no room (shakes his head)";
+        }
         if self.animate(AVATAR, anim::JUMP) { "ahead" } else { "not possible" }
     }
 }
