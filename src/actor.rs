@@ -14,6 +14,8 @@ const X_FACTOR: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
 const Y_FACTOR: [i32; 8] = [-1, -1, 0, 1, 1, 1, 0, -1];
 
 const GRAVITY: i32 = 4;
+/// From this long a stride on, its middle is looked at too (see `step`).
+const STRIDE_CHECK: i32 = 32;
 /// A fall at least this deep ends with the landing animation (three steps).
 const LAND_HEIGHT: i32 = 24;
 /// From this deep on a falling figure shows the falling pose.
@@ -538,6 +540,17 @@ impl Mover {
         // height 0 ended at -18, and he walked on sunk into it; found by
         // the test bot)
         tz = tz.max(0);
+        // A long stride (running) may step over something thin: the fences
+        // of wrought iron are no thicker than a line, and a stride of 64
+        // put him from just in front of one to just behind it, touching it
+        // both times, never inside. Halfway it is in the way. (At the
+        // higher of the two heights: running up a stair is no wall.)
+        if walking && !self.strict && (tx - item.x).abs().max((ty - item.y).abs()) >= STRIDE_CHECK {
+            let (mx, my) = ((item.x + tx) / 2, (item.y + ty) / 2);
+            if !ground.at(mx, my, tz.max(item.z)).valid {
+                return StepResult::Blocked;
+            }
+        }
         (item.x, item.y, item.z) = (tx, ty, tz);
         item.frame = f.frame;
         self.shown = (anim, frame);
