@@ -1,0 +1,9 @@
+# Taking the dagger in the armoury of the palace (map 40): the guard calls
+# the sorcerer, who appears beside the Avatar. Arriving he sets off to his
+# post; the script that brought him ends that walk at once, as it has
+# already begun in the original. He stays and deals with the thief there
+# (he used to walk off and cast his spell from another room).
+args: --map 40 --pos 12087,10139,48
+do: t3;pickup:18622;t250;where:32
+expect: where 32: 12031,9983,48
+expect: bark by 32: What seems to be the problem?

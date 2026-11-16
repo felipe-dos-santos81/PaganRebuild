@@ -107,10 +107,15 @@ impl Game {
     }
 
     /// Something a script put into the view (a person teleported here):
-    /// it enters the area at once, its script runs before the next steps
-    /// of the one that brought it (as in the original, where moving an
-    /// item there tells it right away; Malchir turning to his default
-    /// direction after the scene had turned him to Bane).
+    /// it enters the area at once, and its script runs right away, until
+    /// it first waits, before the next steps of the one that brought it
+    /// (as in the original, where moving an item there tells it at once
+    /// and runs its script; Malchir turning to his default direction after
+    /// the scene had turned him to Bane). The sorcerer who comes to punish
+    /// a theft in the palace sets off to his post on arriving; the script
+    /// that brought him ends that walk at once, which only works if it
+    /// has already begun (otherwise he walked off, through an open door,
+    /// and cast his spell from another room).
     pub fn enter_fast_area_now(&mut self, id: u16) {
         let Some(idx) = self.map().index(id) else { return };
         let it = self.map().items[idx];
@@ -121,7 +126,10 @@ impl Game {
         self.map_mut().items[idx].fast = true;
         self.fast_items.push(idx);
         if id != 0 && id != AVATAR {
-            self.call_event(id, EVENT_ENTER_FAST_AREA, &[]);
+            let pid = self.call_event(id, EVENT_ENTER_FAST_AREA, &[]);
+            if let Some(idx) = (pid != 0).then(|| self.proc_index(pid)).flatten() {
+                self.exec(idx);
+            }
         }
     }
 
