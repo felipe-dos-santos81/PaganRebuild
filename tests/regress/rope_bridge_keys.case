@@ -1,0 +1,7 @@
+# The rope bridge in the cave on map 8 runs a little askew (it shifts by
+# 32 every few planks): walking straight along it with the keys the
+# Avatar went over its edge and fell into the chasm; now he keeps to it
+# and gets across
+args: --map 8 --pos 27264,25604,112
+do: t3;w6:160;where:1
+expect: where 1: 25664,25700,112

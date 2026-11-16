@@ -590,6 +590,16 @@ impl Mover {
             bases.push((tx, item.y));
             bases.push((item.x, ty));
         }
+        // Walked with the keys or the pad over an edge: further to the
+        // side, so that he keeps to a narrow way that bends or runs a
+        // little askew (the rope bridge in the cave on map 8 shifts by
+        // 32 every few planks: walking straight along it he fell off).
+        // Walking straight at a drop it is a drop on either side too.
+        if !blocked_walk && self.player_walk && (dx != 0 || dy != 0) {
+            for side in [24, -24, 32, -32] {
+                bases.push((tx + px * side, ty + py * side));
+            }
+        }
         // a step up or down: 8 high, more for a longer stride (running
         // up or down a stair covers two of its steps at once; with only
         // 8 he stumbled down and slid up), at most 16
