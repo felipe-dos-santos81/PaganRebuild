@@ -1149,8 +1149,10 @@ fn cmd_sunlitscan(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions,
 /// sunlit  whether the Avatar stands where shadows fall (and how many directions are void)
 fn cmd_sunlit(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
     let a = game.map().get(1).copied().ok_or("no avatar")?;
+    // (as the picture has it: with the patience of `sky_here`)
+    let sky = game.sky_here(a.x, a.y);
     let (m, map) = (game.cur_map, game.map());
-    println!("sunlit: {} (void directions {})", crate::shadows::sunlit(m, map, a.x, a.y), crate::shadows::void_directions(map, a.x, a.y));
+    println!("sunlit: {sky} (here alone {}, void directions {})", crate::shadows::sunlit(m, map, a.x, a.y), crate::shadows::void_directions(map, a.x, a.y));
     for far in [256, 512, 768, 1024, 1536, 2048] {
         let counts: Vec<String> = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)].iter().map(|&(dx, dy): &(i32, i32)| {
             let near = map.items_near(a.x + dx * far, a.y + dy * far, 128);

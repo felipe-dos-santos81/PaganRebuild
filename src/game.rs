@@ -244,6 +244,9 @@ pub struct ViewState {
     /// The general light of the lighting as last drawn, and at which tick:
     /// it goes over smoothly to a new one (into a cave, through the day).
     pub(crate) ambient_now: Option<([f32; 3], u32)>,
+    /// Whether the sun shone where the Avatar was in the last picture, and
+    /// on which map (see `sky_here`).
+    pub(crate) sky_was: Option<(usize, bool)>,
     /// Lights found covered by floor (see lighting.rs), on which map, and
     /// when (by item id).
     pub(crate) covered_seen: (usize, crate::hash::HashMap<u16, (bool, u32, (u32, i32, i32, i32))>),
@@ -284,6 +287,7 @@ impl ViewState {
             cam_smooth: None,
             cam_pixels: (0, 0),
             ambient_now: None,
+            sky_was: None,
             covered_seen: (usize::MAX, HashMap::default()),
             rooms_seen: (usize::MAX, HashMap::default()),
             room_light: (0.0, 0),
@@ -1076,7 +1080,7 @@ impl Game {
         let lighting = self.options.lighting;
         let lights = if lighting { Some(self.lights(&xf)) } else { None };
         // under the open sky (for shadows and the general light), and the time of day
-        let sky = (self.options.shadows || lighting) && crate::shadows::sunlit(self.cur_map, self.map(), avatar.x, avatar.y);
+        let sky = (self.options.shadows || lighting) && self.sky_here(avatar.x, avatar.y);
         let hour = (self.tick.wrapping_add(self.time_offset) / 30 % (24 * 900)) as f32 / 900.0;
         let outside = self.ambient_light(crate::lighting::ambient(hour, sky));
         let look = crate::lighting::Look::by_day(outside);
@@ -1452,6 +1456,25 @@ impl Game {
     /// last to `target`, most of the way within a second of game time (a
     /// jump of more than a few seconds, as after loading or sleeping, goes
     /// there at once).
+    /// Whether the sun shines where the Avatar is (shadows, the light of
+    /// the time of day), with some patience: in a big cave the void around
+    /// it is not seen from every spot, and the light and the shadows came
+    /// and went from step to step. Once in a cave it takes open ground
+    /// (hardly any void around) to be under the sky again; once outside it
+    /// takes as much void as a cave has.
+    pub(crate) fn sky_here(&mut self, x: i32, y: i32) -> bool {
+        let map_no = self.cur_map;
+        let map = self.map();
+        let was = self.view.sky_was.filter(|w| w.0 == map_no).map(|w| w.1);
+        let sky = crate::shadows::outdoors(map_no) && !crate::shadows::sees_stars(map, x, y) && {
+            let void = crate::shadows::void_directions(map, x, y);
+            let open = if was == Some(false) { crate::shadows::VOID_ROOM - 1 } else { crate::shadows::VOID_ROOM };
+            void < open
+        };
+        self.view.sky_was = Some((map_no, sky));
+        sky
+    }
+
     fn ambient_light(&mut self, target: [f32; 3]) -> [f32; 3] {
         let now = self.tick;
         let rgb = match self.view.ambient_now {

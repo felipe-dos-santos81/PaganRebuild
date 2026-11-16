@@ -38,7 +38,7 @@ pub fn outdoors(map: usize) -> bool {
 pub fn void_directions(map: &MapData, x: i32, y: i32) -> usize {
     // (looking only at 768 and 1280, the count in a big dungeon swung
     // between 0 and 4 from step to step: the Avatar's shadow came and went)
-    const FAR: [i32; 4] = [768, 1024, 1280, 1792];
+    const FAR: [i32; 6] = [768, 1024, 1280, 1536, 1792, 2048];
     const LOOK: i32 = 128;
     const DIRS: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
     // (only the plates count: beyond the edge of a map there is nothing either)

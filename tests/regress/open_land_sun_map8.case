@@ -1,0 +1,5 @@
+# Open land on map 8 is under the sky (the cave check must not darken it)
+args: --map 8
+do: t1;sunlit;w2:20;sunlit
+expect: sunlit: true
+reject: sunlit: false

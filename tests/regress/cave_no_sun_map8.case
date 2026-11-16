@@ -1,0 +1,8 @@
+# The big cave on map 8 with the shrine and the rope bridge: the void
+# around it was not seen from every spot (the black plates lie 1536 away
+# here), so the light of the time of day and the shadows came and went
+# while the Avatar walked through it; it stays a cave all the way
+args: --map 8 --pos 27915,26279,112
+do: t1;sunlit;w0:8;sunlit;w0:8;sunlit;w0:8;sunlit;w0:8;sunlit;w2:8;sunlit;w2:8;sunlit;w2:8;sunlit;w2:8;sunlit;w4:8;sunlit;w4:8;sunlit;w4:8;sunlit;w4:8;sunlit;w4:8;sunlit;w4:8;sunlit;w6:8;sunlit;w6:8;sunlit;w6:8;sunlit
+expect: sunlit: false
+reject: sunlit: true
