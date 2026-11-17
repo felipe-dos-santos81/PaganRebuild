@@ -1,0 +1,10 @@
+# The book "Kith Venom" lies on the far side of a table in Tenebrae (map
+# 39), 103 from the Avatar: he could take it from there, but a click to
+# read it sent him round the table first (and on the way upstairs). Use
+# reaches as far as taking does (128, as in the original): he reads it
+# where he stands
+args: --map 39 --pos 15762,7942,48
+do: t3;useat:29175;t30;where:1
+expect: useat: used at once
+expect: reader open (book)
+expect: where 1: 15762,7942,48

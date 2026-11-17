@@ -11,6 +11,12 @@ const EVENT_USE: u32 = 1;
 /// How far the Avatar can reach, between the footprints.
 const REACH: i32 = 96;
 const REACH_HEIGHT: i32 = 64;
+/// How far a thing clicked to use it may be (between the footprints) to
+/// be used from where he stands: as far as he may pick things up (and as
+/// in the original, which allows 128 for both). With 96 a book lying on
+/// the far side of a table, which he could take, was only read after he
+/// had walked round the table (and on his way he went upstairs).
+const USE_REACH: i32 = 128;
 /// Shape of the key ring (key K uses it, as in the original).
 pub const KEYRING: u32 = 79;
 
@@ -88,7 +94,7 @@ impl Game {
     fn at_hand(&self, id: u16) -> bool {
         let (Some(item), avatar) = (self.map().get(id).copied(), self.avatar()) else { return false };
         // what lies in a container or is worn is at hand
-        !item.in_world() || (self.box_gap(&avatar, &item) <= REACH && (item.z - avatar.z).abs() <= REACH_HEIGHT)
+        !item.in_world() || (self.box_gap(&avatar, &item) <= USE_REACH && (item.z - avatar.z).abs() <= REACH_HEIGHT)
             // (option: all over a pentacle he stands near, to light the candles)
             || self.pentagram_reach(item.x, item.y, item.z)
     }
