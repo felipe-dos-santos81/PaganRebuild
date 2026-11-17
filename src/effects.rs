@@ -442,6 +442,16 @@ impl Game {
             (Some(t), false) if by_gap => self.box_gap(at, t) <= NEAR_GAP,
             _ => (tx - at.x).abs().max((ty - at.y).abs()) <= reach.max(40) && (!need_level || on_level(level, at.z)),
         };
+        // Others than the Avatar (not sent by a script): where the straight
+        // line to the goal is free, no search is needed (a creature
+        // running at the Avatar over open ground; several hunting him in
+        // the woods searched for 2 to 9 ms each, and on the Steam Deck
+        // pictures were missed)
+        if pf.actor != AVATAR && !pf.scripted && level.is_none() {
+            if let Some(w) = self.straight_way(it, (tx, ty), |at| near(at, false)) {
+                return Some(Way::from(w));
+            }
+        }
         // a way down to (or up the stairs to) the clicked level first;
         // if there is none, as near as it goes (ledges are climbed then)
         let found = match level {

@@ -96,6 +96,40 @@ impl Game {
             .collect()
     }
 
+    /// The straight line from `actor` to `goal`, if it can be walked as it
+    /// is (nothing in the way, ground all along, at most a step up or down
+    /// at a time, no water, no flames): then no search is needed. Looked
+    /// at every 8, so that `near` (close enough to a person one walks up
+    /// to) is met before the line runs into that person. Cheap: one look
+    /// per point where the line is free, a few dozen in all. Not for long
+    /// lines (`STRAIGHT_MOST`).
+    pub fn straight_way(&self, actor: &Item, goal: (i32, i32), near: impl Fn(&Item) -> bool) -> Option<(Vec<(i32, i32)>, Vec<bool>)> {
+        const EVERY: i32 = 8;
+        /// The longest line looked at (beyond it the way is searched).
+        const STRAIGHT_MOST: i32 = 1600;
+        let info = self.data.infos.get(actor.shape as usize).copied()?;
+        let (dx, dy) = (goal.0 - actor.x, goal.1 - actor.y);
+        let length = dx.abs().max(dy.abs());
+        if length == 0 || length > STRAIGHT_MOST {
+            return None;
+        }
+        let flames = self.flames_to_avoid(actor);
+        let ground = Terrain { map: self.map(), infos: &self.data.infos, actor, pad: info.footpad(false), may_drop: false, bottom: true, flames: &flames, floats: FLOATERS.contains(&actor.shape) };
+        let n = (length + EVERY - 1) / EVERY;
+        let mut pos = (actor.x, actor.y, actor.z);
+        for i in 1..=n {
+            let (nx, ny) = (actor.x + dx * i / n, actor.y + dy * i / n);
+            let z = ground.step_height(pos, nx, ny);
+            self.path_used.set(self.path_used.get() + 1);
+            pos = (nx, ny, z?);
+            if near(&Item { x: pos.0, y: pos.1, z: pos.2, ..*actor }) {
+                self.path_reached.set(true);
+                return Some((vec![(pos.0, pos.1)], vec![false]));
+            }
+        }
+        None
+    }
+
     /// Searches a walkable way for `actor` to a place. `near(x, y)` says
     /// whether a position is close enough; `may_drop`: the way may lead
     /// down over edges. Returns the points to walk through, each with
