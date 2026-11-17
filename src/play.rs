@@ -447,15 +447,16 @@ impl Play {
             if world {
                 // The journal's button (Back) held is a shift: with the cross
                 // up and down it zooms, with Y it saves quickly (F5; the
-                // backpack stays shut). Let go without having used it so, it
+                // backpack stays shut), with X it shows the Avatar's values
+                // (P; he does not strike). Let go without having used it so, it
                 // opens the journal (on letting go, not on pressing).
                 use crate::platform::Pad;
                 let journal = game.bindings.pad_of("journal");
                 let shift = journal.is_some_and(down);
-                let plain = |p: Pad| down(p) && Some(p) != journal && !(shift && matches!(p, Pad::Up | Pad::Down | Pad::Y));
+                let plain = |p: Pad| down(p) && Some(p) != journal && !(shift && matches!(p, Pad::Up | Pad::Down | Pad::Y | Pad::X));
                 buttons = pad_in_world(&plain, &game.bindings, &mut keys);
                 if shift {
-                    for (p, k) in [(Pad::Up, Key::Equal), (Pad::Down, Key::Minus), (Pad::Y, Key::F5)] {
+                    for (p, k) in [(Pad::Up, Key::Equal), (Pad::Down, Key::Minus), (Pad::Y, Key::F5), (Pad::X, Key::P)] {
                         if down(p) {
                             keys.insert(k);
                             self.journal_shift_used = true;
@@ -1045,6 +1046,9 @@ impl Play {
         }
         if window.is_key_pressed(Key::I, KeyRepeat::No) {
             game.open_inventory();
+        }
+        if window.is_key_pressed(Key::P, KeyRepeat::No) {
+            game.toggle_avatar_window();
         }
         if window.is_key_pressed(Key::C, KeyRepeat::No) && !win_next {
             game.close_all_gumps();

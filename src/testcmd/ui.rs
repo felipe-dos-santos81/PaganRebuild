@@ -10,8 +10,9 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 36] = [
+const COMMANDS: [(&str, super::Group); 37] = [
     ("title", cmd_title),
+    ("stats", cmd_stats),
     ("titlekey", cmd_titlekey),
     ("wait", cmd_wait),
     ("movie", cmd_movie),
@@ -254,6 +255,14 @@ fn cmd_bookclick(game: &mut Game, surf: &mut Surface, _opts: &mut ViewOptions, _
     if let Some((text, _)) = &game.ui.notice {
         println!("notice: {text}");
     }
+    Ok(Flow::Done)
+}
+
+/// stats  the key for the Avatar's values (P; on the pad Back and X): his window opens or closes
+fn cmd_stats(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
+    // (it opens through the Avatar's script, in the next tick: what it was before)
+    println!("stats: window was {}", if game.ui.gumps.iter().any(|g| g.owner == crate::game::AVATAR) { "open" } else { "closed" });
+    game.toggle_avatar_window();
     Ok(Flow::Done)
 }
 

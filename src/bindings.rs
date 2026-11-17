@@ -34,7 +34,7 @@ const fn act(id: &'static str, names: [&'static str; 3], key: Key, pad: Option<P
     Action { id, names, does: Does::Key(key), pad }
 }
 
-pub const ACTIONS: [Action; 37] = [
+pub const ACTIONS: [Action; 38] = [
     act("up", ["Gehen: hoch", "Marcher: haut", "Walk up"], Key::W, None),
     act("down", ["Gehen: runter", "Marcher: bas", "Walk down"], Key::S, None),
     act("left", ["Gehen: links", "Marcher: gauche", "Walk left"], Key::A, None),
@@ -54,6 +54,9 @@ pub const ACTIONS: [Action; 37] = [
     act("block", ["Abwehren", "Parer", "Block"], Key::B, Some(Pad::RB)),
     act("combat", ["Kampfmodus", "Mode combat", "Combat mode"], Key::Tab, Some(Pad::LB)),
     act("inventory", ["Rucksack", "Sac", "Backpack"], Key::I, Some(Pad::Y)),
+    // the Avatar's window with his values (strength, health ...); on the pad
+    // the journal's button held and X (see play.rs)
+    act("stats", ["Werte des Avatars", "Caract\u{82}ristiques", "Avatar's values"], Key::P, None),
     act("close", ["Fenster schlie\u{e1}en", "Fermer les fen\u{88}tres", "Close windows"], Key::C, Some(Pad::Right)),
     act("menu", ["Men\u{81}", "Menu", "Menu"], Key::V, None),
     // Start opens the main menu (save, load, options, quit), as on consoles;

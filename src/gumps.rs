@@ -397,6 +397,17 @@ impl Game {
         }
     }
 
+    /// The player asks for the Avatar's values: his own window (what he
+    /// wears, strength, health ...), opened as by a double click on him,
+    /// or closed if it is open.
+    pub fn toggle_avatar_window(&mut self) {
+        if self.ui.gumps.iter().any(|g| g.owner == AVATAR) {
+            self.close_gump(AVATAR);
+        } else {
+            self.interact(AVATAR, true);
+        }
+    }
+
     // ---- reading ---------------------------------------------------------
 
     /// Shows text for the player to read; the returned process ends when

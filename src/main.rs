@@ -155,7 +155,7 @@ usage: PaganRebuild [options]
                         drag:<id>:<x>,<y>  drag an item to a view position
                         combat  attack[:<dir>]  hp   draw the weapon, strike, list the health of actors
                         skip           end the speech on screen
-                        page  inv  inside:<id>   next reader page, open inventory, list contents
+                        page  inv  stats  inside:<id>   next reader page, open inventory, the Avatar's window (P), list contents
                         procs          list the running script processes
                         event:<id>,<name>  start an item's script for an event (look, use, hatch, schedule ...)
                         pathshown      the tiles of the invisible path shown on this map

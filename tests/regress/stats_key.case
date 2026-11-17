@@ -1,0 +1,7 @@
+# The key for the Avatar's values (P; on the pad Back and X) opens his own
+# window with what he wears and his values, and closes it again
+args: --map 4 --pos 10624,10160,48
+do: t5;stats;t2;stats;t2;stats
+expect: stats: window was closed
+expect: stats: window was open
+reject: stats: window was open\nstats: window was open
