@@ -574,6 +574,12 @@ impl Play {
         let state = cursor::PointerState { moving_window: self.gump_held.is_some(), put_away: self.pointer_away };
         present(&mut self.window, &self.surf, &mut self.shown, &mut self.upscaled, &mut self.game, &self.mouse_pointer, state)?;
         show(&mut self.window, &self.shown, &mut self.upscaled, 1)?;
+        // the pacing measures each picture from the one before: without
+        // this, the first picture after a menu counted all the time the
+        // menu was open as its work, and with two more close ones the
+        // pace went down to every other refresh for some seconds (90 to
+        // 45 pictures a second after closing the main menu)
+        self.pacer.shown();
         self.next_tick = Instant::now() + TICK;
         Ok(())
     }
