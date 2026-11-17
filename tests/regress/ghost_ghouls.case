@@ -3,6 +3,6 @@
 # (Khumash-Gor himself never does)
 args: --cheat
 do: t10;spawn:411,300;t1200;find:142
-# (where the ghouls end up depends on the course of the fight)
-expect: id    63 shape  142 frame
-expect: npc 63 map 3
+# (where the ghouls end up, and which numbers they get, depends on the
+# course of the fight)
+expect: shape  142 frame

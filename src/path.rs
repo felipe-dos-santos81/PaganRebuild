@@ -234,7 +234,7 @@ struct Step {
 /// `used`: how many positions it looked at.
 fn search_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32), may_drop: bool, bottom: bool, partial: Ends, near: impl Fn(&Item) -> bool, most: usize, weight: i32, flames: &[WorldBox], used: &mut usize) -> Option<(Vec<Step>, bool)> {
     let info = infos.get(actor.shape as usize).copied()?;
-    let ground = Terrain { map, infos, actor, pad: info.footpad(false), may_drop, bottom, flames };
+    let ground = Terrain { map, infos, actor, pad: info.footpad(false), may_drop, bottom, flames, floats: FLOATERS.contains(&actor.shape) };
     // straight and diagonal steps cost 10 and 14; the estimate to the goal likewise
     let estimate = |p: (i32, i32, i32)| {
         let (dx, dy) = ((p.0 - goal.0).abs() / STEP, (p.1 - goal.1).abs() / STEP);
@@ -341,7 +341,17 @@ struct Terrain<'a> {
     bottom: bool,
     /// Flames the walker keeps out of (option "avoid_flames").
     flames: &'a [WorldBox],
+    /// The walker floats at one height (see `FLOATERS`): steps up or down
+    /// are not looked for.
+    floats: bool,
 }
+
+/// Creatures that float along at one height: the fire skulls. Small as
+/// they are (8 high), every tree trunk beside their way was looked at 17
+/// times, once for every height of a step up or down, and a pack of them
+/// hunting the Avatar in the woods cost up to 9 ms per search (on the
+/// Steam Deck pictures were missed).
+const FLOATERS: [u32; 1] = [413];
 
 impl Terrain<'_> {
     fn boxed(&self, p: (i32, i32, i32)) -> WorldBox {
@@ -380,7 +390,7 @@ impl Terrain<'_> {
     /// The height a step from `pos` to `(nx, ny)` ends at: on the same
     /// level, or up or down a step.
     fn step_height(&self, pos: (i32, i32, i32), nx: i32, ny: i32) -> Option<i32> {
-        for k in 0..=16 {
+        for k in 0..=if self.floats { 0 } else { 16 } {
             let lift = if k % 2 == 1 { (k + 1) / 2 } else { -(k / 2) };
             let z = pos.2 + lift;
             if z < 0 {
