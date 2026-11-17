@@ -431,6 +431,7 @@ impl Game {
         // the game left behind)
         self.paths.clear();
         self.path_tried.clear();
+        self.path_misses.clear();
         self.fights.approach_fails.clear();
         self.ui.targeting = None;
         self.ui.peace_target = None;

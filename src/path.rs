@@ -16,7 +16,18 @@ const MAX_NODES: usize = 1500;
 /// For anyone but the Avatar (creatures closing in, people on their way):
 /// their ways are short, and a search that finds none (the enemy up on a
 /// wall) costs a good part of a frame at the full count.
-const MAX_NODES_OTHERS: usize = 500;
+pub const MAX_NODES_OTHERS: usize = 500;
+/// Again from about where the last search found no way to the goal (the
+/// creature behind a fence the running Avatar is on the other side of):
+/// as far as the way to the nearest point goes, a smaller search does it.
+/// Each search to the full count cost 2 to 3.5 ms, every 15 ticks, and on
+/// the Steam Deck that made pictures miss their moment.
+pub const MAX_NODES_AGAIN: usize = 150;
+/// Positions all walkers but the Avatar (and walks a script asked for)
+/// may look at in one tick together; a search that does not fit in what
+/// is left waits for the next tick. Counted, not timed: the game runs the
+/// same on every computer.
+pub const NODES_PER_TICK: usize = 600;
 /// How far a way may lead down over an edge (with drops allowed).
 const MAX_DROP: i32 = 96;
 /// Extra cost of a drop: a way on foot is preferred if it is not much longer.
@@ -130,9 +141,14 @@ impl Game {
     }
 
     fn search_path(&self, actor: &Item, goal: (i32, i32), may_drop: bool, partial: Ends, near: impl Fn(&Item) -> bool) -> Option<(Vec<(i32, i32)>, Vec<bool>)> {
-        let most = if actor.id == crate::game::AVATAR { MAX_NODES } else { MAX_NODES_OTHERS };
+        let most = self.path_limit.get().unwrap_or(if actor.id == crate::game::AVATAR { MAX_NODES } else { MAX_NODES_OTHERS });
         let flames = self.flames_to_avoid(actor);
-        let (steps, _) = search_on(self.map(), &self.data.infos, actor, goal, may_drop, true, partial, near, most, 1, &flames)?;
+        let mut used = 0;
+        let found = search_on(self.map(), &self.data.infos, actor, goal, may_drop, true, partial, near, most, 1, &flames, &mut used);
+        // (what it cost and whether it got there, for the walk's budget)
+        self.path_used.set(self.path_used.get() + used);
+        self.path_reached.set(found.as_ref().is_some_and(|f| f.1));
+        let (steps, _) = found?;
         // only the corners (and the end): walking straight on in between;
         // a drop keeps both the edge and where one lands
         let mut path = Vec::new();
@@ -160,7 +176,7 @@ impl Game {
 /// much sooner. The way may lead down over an edge; it keeps off the
 /// bottom of the world (the void below the dungeons, under their floors).
 pub fn long_way(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32), near: impl Fn(&Item) -> bool, most: usize, weight: i32) -> Option<(Vec<(i32, i32, i32)>, bool)> {
-    let (steps, reached) = search_on(map, infos, actor, goal, true, false, Ends::Nearest, near, most, weight, &[])?;
+    let (steps, reached) = search_on(map, infos, actor, goal, true, false, Ends::Nearest, near, most, weight, &[], &mut 0)?;
     Some((steps.iter().map(|s| s.pos).collect(), reached))
 }
 
@@ -215,7 +231,8 @@ struct Step {
 /// The search itself (A* over a grid of STEP): the points from the start
 /// (not included) to the end, and whether the end is the goal.
 #[allow(clippy::too_many_arguments)]
-fn search_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32), may_drop: bool, bottom: bool, partial: Ends, near: impl Fn(&Item) -> bool, most: usize, weight: i32, flames: &[WorldBox]) -> Option<(Vec<Step>, bool)> {
+/// `used`: how many positions it looked at.
+fn search_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32), may_drop: bool, bottom: bool, partial: Ends, near: impl Fn(&Item) -> bool, most: usize, weight: i32, flames: &[WorldBox], used: &mut usize) -> Option<(Vec<Step>, bool)> {
     let info = infos.get(actor.shape as usize).copied()?;
     let ground = Terrain { map, infos, actor, pad: info.footpad(false), may_drop, bottom, flames };
     // straight and diagonal steps cost 10 and 14; the estimate to the goal likewise
@@ -294,6 +311,7 @@ fn search_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32),
         }
     }
 
+    *used = nodes.len();
     // if the goal is out of reach, at least get closer
     let end = match reached {
         Some(i) => i,

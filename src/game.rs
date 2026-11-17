@@ -398,6 +398,17 @@ pub struct Game {
     /// 32 grid). The same search again finds nothing new - and one that
     /// finds no way can take a good part of a frame.
     pub path_tried: HashMap<u16, (i32, i32, i32, i32)>,
+    /// Where each walker's last way search found no way to its goal (see
+    /// `path::MAX_NODES_AGAIN`).
+    pub path_misses: HashMap<u16, (i32, i32)>,
+    /// Positions the walkers may still look at in this tick (see
+    /// `path::NODES_PER_TICK`).
+    pub path_budget: usize,
+    /// For the way search under way: its limit (None: the usual one), and
+    /// afterwards how many positions it looked at and whether it got there.
+    pub path_limit: std::cell::Cell<Option<usize>>,
+    pub path_used: std::cell::Cell<usize>,
+    pub path_reached: std::cell::Cell<bool>,
     /// Game hour of the last round of schedule scripts, and whose turn it
     /// is in the current round (0: none running).
     pub sched_last_hour: u32,
@@ -566,6 +577,11 @@ impl Game {
             time_offset: 8 * 27000,
             paths: HashMap::default(),
             path_tried: HashMap::default(),
+            path_misses: HashMap::default(),
+            path_budget: crate::path::NODES_PER_TICK,
+            path_limit: std::cell::Cell::new(None),
+            path_used: std::cell::Cell::new(0),
+            path_reached: std::cell::Cell::new(false),
             sched_last_hour: 0,
             sched_after_scene: Vec::new(),
             sleep_menu: None,
@@ -877,6 +893,8 @@ impl Game {
                 self.data.pal.set_transform(crate::palette::shown_transform(3, self.options.storm));
             }
         }
+        // the way searches of this tick start afresh
+        self.path_budget = crate::path::NODES_PER_TICK;
         self.tick_vitals();
         self.tidy_potions();
         self.tick_passersby();

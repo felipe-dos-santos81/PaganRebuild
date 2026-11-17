@@ -37,11 +37,16 @@ pub struct Pathfind {
     /// door opens it from where he stands).
     #[serde(skip)]
     pub scripted: bool,
+    /// A new search is due but waits: the tick's way searches were used up.
+    /// (Not kept in savegames, whose format it would change: after loading
+    /// the walk searches anew anyway.)
+    #[serde(skip)]
+    replan_due: bool,
 }
 
 impl Pathfind {
     pub fn new(actor: u16, target: u16, pos: (i32, i32)) -> Pathfind {
-        Pathfind { actor, target, pos, touch: false, planned: false, goal: (0, 0), next: 0, replans: 0, last: (i32::MIN, i32::MIN), detour: (0, 0), stuck: 0, ticks: 0, scripted: false }
+        Pathfind { actor, target, pos, touch: false, planned: false, goal: (0, 0), next: 0, replans: 0, last: (i32::MIN, i32::MIN), detour: (0, 0), stuck: 0, ticks: 0, scripted: false, replan_due: false }
     }
 
     /// No progress for a while: look for another way, or sidestep.
@@ -233,15 +238,39 @@ impl Game {
         // Search a way around the obstacles; again if the target has moved
         // away from where it was, or the actor got stuck.
         let moved = (tx - pf.goal.0).abs().max((ty - pf.goal.1).abs()) > 96;
-        if (!pf.planned || (moved && pf.replans < 8 && pf.ticks.is_multiple_of(15)))
-            && !self.plan_way(pf, &it, (tx, ty), reach, level, by_gap)
-            && (pf.actor == AVATAR || pf.scripted)
-        {
-            // the player's Avatar does not march blindly at what he cannot
-            // reach (into the water, against a wall)
-            self.stop_walk(pf.actor, &it, (0, 0));
-            self.not_there(pf, &it, level);
-            return true;
+        let due = !pf.planned || pf.replan_due || (moved && pf.replans < 8 && pf.ticks.is_multiple_of(15));
+        // The searches of all walkers but the Avatar (and those a script
+        // sent) share a budget per tick: one that does not fit waits for
+        // the next tick, on the way it has, or standing if it has none.
+        let budgeted = pf.actor != AVATAR && !pf.scripted;
+        let limit = if budgeted { self.path_limit_for(&it) } else { None };
+        if due && limit.is_some_and(|l| l > self.path_budget) {
+            pf.replan_due = true;
+            if !pf.planned {
+                self.inputs.remove(&pf.actor);
+                return false;
+            }
+        } else if due {
+            pf.replan_due = false;
+            self.path_limit.set(limit);
+            self.path_used.set(0);
+            let found = self.plan_way(pf, &it, (tx, ty), reach, level, by_gap);
+            self.path_limit.set(None);
+            if budgeted && self.path_used.get() > 0 {
+                self.path_budget = self.path_budget.saturating_sub(self.path_used.get());
+                if self.path_reached.get() {
+                    self.path_misses.remove(&pf.actor);
+                } else {
+                    self.path_misses.insert(pf.actor, (it.x, it.y));
+                }
+            }
+            if !found && (pf.actor == AVATAR || pf.scripted) {
+                // the player's Avatar does not march blindly at what he cannot
+                // reach (into the water, against a wall)
+                self.stop_walk(pf.actor, &it, (0, 0));
+                self.not_there(pf, &it, level);
+                return true;
+            }
         }
         pf.check_progress(&it);
 
@@ -307,6 +336,17 @@ impl Game {
         let here = crate::map::WorldBox::of(it, si);
         let there = crate::map::WorldBox { x: here.x + 32 * XF[dir], y: here.y + 32 * YF[dir], ..here };
         flames.iter().any(|f| f.overlaps(&there) && !f.overlaps(&here))
+    }
+
+    /// How many positions the way search of walker `it` may look at:
+    /// fewer again from about where its last search found no way (see
+    /// `path::MAX_NODES_AGAIN`).
+    fn path_limit_for(&self, it: &Item) -> Option<usize> {
+        /// Within this of the spot of the last miss it counts as the same
+        /// place (a creature kept from its prey by a fence moves along it).
+        const SAME_PLACE: i32 = 256;
+        let again = self.path_misses.get(&it.id).is_some_and(|&(x, y)| (it.x - x).abs().max((it.y - y).abs()) <= SAME_PLACE);
+        Some(if again { crate::path::MAX_NODES_AGAIN } else { crate::path::MAX_NODES_OTHERS })
     }
 
     /// Where a walk is heading and how close counts as there; None when
