@@ -147,7 +147,8 @@ impl Switch {
             Switch::EnemyHealth => ["Lebensbalken der Gegner", "Barre de vie des ennemis", "Enemy health bars"],
             Switch::Controls => ["Steuerung", "Commandes", "Controls"],
             Switch::RoadKeys => ["Tasten entlang der Wege", "Touches le long des chemins", "Keys follow the roads"],
-            Switch::TurnView => ["Drehbare Ansicht", "Vue orientable", "Turnable view"],
+            // (experimental, and it costs time in every picture: off unless chosen)
+            Switch::TurnView => ["Drehbare Ansicht (experimentell)", "Vue orientable (exp\u{82}rimental)", "Turnable view (experimental)"],
             Switch::Lighting => ["Beleuchtung", "Eclairage", "Lighting"],
             Switch::Pixels => ["Grafikfilter", "Filtre graphique", "Graphics filter"],
             Switch::Music => ["Musik", "Musique", "Music"],
@@ -397,7 +398,7 @@ pub const ZOOM_NORMAL: usize = 1;
 
 impl Default for Options {
     fn default() -> Options {
-        Options { smooth_camera: true, even_walk: true, pick_things: true, enemy_health: true, modern_controls: true, click_walk: true, road_keys: true, turn_view: true, lighting: true, pixels: PIXELS_SHARP, zoom: ZOOM_NORMAL, text_size: 2, better_music: true, spatial_sound: true, show_armour: true, show_helm: true, minimap: true, better_inventory: true, hover_names: 0, hold_walk: true, journal: true, practice: true, album_music: true, better_sound: true, passersby: false, wide_view: true, shadows: true, sleep_until: true, notice_far: true, talk_truce: true, spell_notes: false, map_fade: true, victory_fanfare: false, avatar_outline: OUTLINE_DEFAULT, avatar_menu: false, guide: true, puzzle_spots: true, storm: 1, pentagram_snap: true, pentagram_reach: true, avoid_flames: true, monster_fade: true, seen_end: false, magic_glow: true }
+        Options { smooth_camera: true, even_walk: true, pick_things: true, enemy_health: true, modern_controls: true, click_walk: true, road_keys: true, turn_view: false, lighting: true, pixels: PIXELS_SHARP, zoom: ZOOM_NORMAL, text_size: 2, better_music: true, spatial_sound: true, show_armour: true, show_helm: true, minimap: true, better_inventory: true, hover_names: 0, hold_walk: true, journal: true, practice: true, album_music: true, better_sound: true, passersby: false, wide_view: true, shadows: true, sleep_until: true, notice_far: true, talk_truce: true, spell_notes: false, map_fade: true, victory_fanfare: false, avatar_outline: OUTLINE_DEFAULT, avatar_menu: false, guide: true, puzzle_spots: true, storm: 1, pentagram_snap: true, pentagram_reach: true, avoid_flames: true, monster_fade: true, seen_end: false, magic_glow: true }
     }
 }
 
