@@ -151,6 +151,8 @@ pub struct Light {
     /// Where it is in the world (x, y of its middle).
     pub wx: i32,
     pub wy: i32,
+    /// A flat thing (a lamp on a wall): thin across x (true) or y.
+    pub thin: Option<bool>,
     /// A flat light (lava, a fire field): fades out above `top`.
     pub soft: bool,
 }
@@ -283,17 +285,18 @@ impl Game {
             };
             let z = it.z + mid;
             let (wx, wy) = (it.x - xd / 2, it.y - yd / 2);
+            let thin = (xd != yd && xd.min(yd) <= 32).then_some(xd < yd);
             // (a fire's box is often taller than the room it burns in: its
             // light ends at the height of a room, not on the roof above)
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
             if lamp_seen {
-                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, wx, wy, soft });
+                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, wx, wy, thin, soft });
                 if let Some((core_radius, core_rgb)) = core_of(it.shape) {
-                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, wx, wy, soft });
+                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, wx, wy, thin, soft });
                 }
             }
             if ground_seen {
-                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, wx, wy, soft });
+                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, wx, wy, thin, soft });
             }
         }
         out
@@ -502,13 +505,13 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     };
     let tw = (w + dx) / CELL + 2;
     let shade = |n: usize, gx: i32, gy: i32| -> f32 {
-        let (Some(sh), Some(l)) = (&shadows, lights.get(n)) else { return 1.0 };
+        let Some(sh) = &shadows else { return 1.0 };
         let Some(Some(sight)) = sh.sights.get(n) else { return 1.0 };
         if gx < 0 || gy < 0 || gx >= tw {
             return 1.0;
         }
         match targets.get((gy * tw + gx) as usize) {
-            Some(&Some(t)) if !sight.sees(t, (l.wx, l.wy)) => 0.0,
+            Some(&Some(t)) if !sight.sees(t) => 0.0,
             _ => 1.0,
         }
     };
@@ -816,12 +819,15 @@ pub struct Sight {
     y0: i32,
     n: i32,
     tops: Vec<i32>,
+    /// Where the light's lines start: its middle, or the nearest free spot
+    /// beside it when its middle lies in the wall it hangs on.
+    from: (i32, i32),
 }
 
 impl Sight {
     /// Is a point reached by the light at `from`, with no wall between?
-    fn sees(&self, t: Target, from: (i32, i32)) -> bool {
-        let (lx, ly) = from;
+    fn sees(&self, t: Target) -> bool {
+        let (lx, ly) = self.from;
         // (the last 12 units before a wall or thing are its own: its foot)
         let end = if matches!(t, Target::Point(..)) { 0.0 } else { 12.0 };
         let (tx, ty, tz) = match t {
@@ -846,15 +852,16 @@ impl Sight {
             }
         };
         // The squares the line from the light to the point crosses, one
-        // after the other (each once); the first 24 units are the light's
-        // own (the wall or pillar a lamp hangs on), the last `end` the
-        // point's.
+        // after the other (each once); the last `end` units are the
+        // point's. (Skipping the first 24 units as the light's own let the
+        // light of a lamp on a wall slip through the wall beside it, onto
+        // the floor inside by the door.)
         let (dx, dy) = ((tx - lx) as f32, (ty - ly) as f32);
         let len = (dx * dx + dy * dy).sqrt();
-        if len <= 24.0 + end {
+        if len <= end + 1.0 {
             return true;
         }
-        let (t0, t1) = (24.0 / len, (len - end) / len);
+        let (t0, t1) = (0.0, (len - end) / len);
         let cell = SIGHT_CELL as f32;
         let (fx, fy) = ((lx - self.x0) as f32 / cell, (ly - self.y0) as f32 / cell);
         let (mut cx, mut cy) = (fx.floor() as i32, fy.floor() as i32);
@@ -948,7 +955,25 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
                     }
                 }
             }
-            any.then_some(Sight { x0, y0, n, tops })
+            // The start of its lines: a lamp hangs flat on a wall, its middle
+            // close to it. The start is moved away from the wall, to the side
+            // the lamp hangs on, so that lines along the wall do not graze
+            // it (nor slip through it beside the lamp).
+            let wall_at = |x: i32, y: i32| {
+                let (cx, cy) = ((x - x0).div_euclid(SIGHT_CELL), (y - y0).div_euclid(SIGHT_CELL));
+                cx >= 0 && cy >= 0 && cx < n && cy < n && tops[(cy * n + cx) as usize] > l.z
+            };
+            let mut from = (l.wx, l.wy);
+            if let Some(across_x) = l.thin {
+                for d in [-1, 1] {
+                    let hit = (8..=24).step_by(8).any(|k| if across_x { wall_at(l.wx + d * k, l.wy) } else { wall_at(l.wx, l.wy + d * k) });
+                    if hit {
+                        from = if across_x { (l.wx - d * 24, l.wy) } else { (l.wx, l.wy - d * 24) };
+                        break;
+                    }
+                }
+            }
+            any.then_some(Sight { x0, y0, n, tops, from })
         })
         .collect()
 }
