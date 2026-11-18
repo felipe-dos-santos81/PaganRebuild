@@ -96,13 +96,18 @@ const BELOW: i32 = 104;
 const FLAT_REACH: i32 = 40;
 /// Fires light what stands up to this high above their ground.
 const FIRE_REACH: i32 = 48;
-/// Above the height a flat light reaches (lava, a fire field) its light
-/// does not stop at once but fades out over this much: rocks standing in
-/// lava are put together from pieces one above the other, and the lower
-/// ones were lit in full, the one above not at all (a hard line across
-/// the rock). Lamps and fires keep the hard end: their light is not to
-/// reach through a ceiling into the room above.
-const FADE_ABOVE: i32 = 48;
+/// A flat light (lava, a fire field) does not end at a height but fades
+/// with the height above its ground: in full up to `SOFT_FULL`, then less
+/// and less, gone after another `SOFT_FADE`. Rocks standing in lava are
+/// put together from pieces one above the other, and the floor of a way
+/// rises in steps of 8: with a hard end (lit in full up to 40, above not
+/// at all) a hard line ran across a rock or a way; fading over 48 still
+/// left a step of a sixth of the light at each step of the floor. Over
+/// 120 a step of 8 changes the light by a fifteenth. Lamps and fires keep
+/// the hard end: their light is not to reach through a ceiling into the
+/// room above.
+const SOFT_FULL: i32 = 16;
+const SOFT_FADE: i32 = 120;
 
 /// Height of a lamp post below its lamp.
 const POST: i32 = 80;
@@ -348,7 +353,7 @@ struct Field {
     z: i32,
     top: i32,
     inside: Option<bool>,
-    /// Fades out above `top` (see `FADE_ABOVE`).
+    /// Fades with the height (see `SOFT_FADE`).
     soft: bool,
     /// The first point of the grid (in grid steps) and its size in points.
     gx0: i32,
@@ -509,12 +514,16 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                     if top < f.z - BELOW || (roof && foot >= f.z) {
                         continue;
                     }
-                    if foot >= f.top {
-                        // (a flat light fades out above its reach)
-                        if !f.soft || foot >= f.top + FADE_ABOVE {
+                    if f.soft {
+                        // (a flat light fades with the height above its
+                        // ground, which lies `FLAT_REACH` below its top)
+                        let above = foot - (f.top - FLAT_REACH) - SOFT_FULL;
+                        if above >= SOFT_FADE {
                             continue;
                         }
-                        share = 1.0 - (foot - f.top + 1) as f32 / (FADE_ABOVE + 1) as f32;
+                        share = (1.0 - above.max(0) as f32 / SOFT_FADE as f32).min(1.0);
+                    } else if foot >= f.top {
+                        continue;
                     }
                 }
                 // between the four grid points around the pixel
