@@ -10,10 +10,11 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 46] = [
+const COMMANDS: [(&str, super::Group); 47] = [
     ("blackframes", cmd_blackframes),
     ("outline", cmd_outline),
     ("pickat", cmd_pickat),
+    ("room", cmd_room),
     ("grabat", cmd_grabat),
     ("gumpshot", cmd_gumpshot),
     ("usable", cmd_usable),
@@ -83,6 +84,13 @@ fn cmd_outline(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st:
     game.draw(surf, opts, false);
     let av = game.map().index(crate::game::AVATAR);
     println!("outline: {} pixels", game.draw_avatar_outline(surf, av));
+    Ok(Flow::Done)
+}
+
+/// room:<id>  is the item inside a house for the lighting, and how that is found out
+fn cmd_room(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let id = number(arg, cmd)? as u16;
+    println!("{}", crate::lighting::explain_room(game.map(), &game.data.infos, id));
     Ok(Flow::Done)
 }
 

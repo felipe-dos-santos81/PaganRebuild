@@ -119,6 +119,7 @@ usage: PaganRebuild [options]
                         chunkcheck[:<q>,..] walk away from each chunk-laying egg and back, list fast-area things lost
                         swapcheck      heights of every chunk-swapping egg's chunk and its pattern chunk
                         pickat:<x>,<y> draw the view and name the item painted at this pixel
+                        room:<id>      inside a house or not for the lighting, and how that is found out
                         grabat:<x>,<y> draw the view and name what a click at this pixel reaches
                         usable:<id>    can it be used, looked at, carried; its family and equip type
                         shapeshot:<shape>,..  the picture is all frames of these world shapes, on grey

@@ -714,6 +714,27 @@ fn hangs_on_wall(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], i
     None
 }
 
+/// For the test command `room`: whether a thing counts as inside a house
+/// for the lighting, and by which rule.
+pub fn explain_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], id: u16) -> String {
+    let Some(it) = map.get(id) else { return format!("no item {id}") };
+    let probes = std::cell::Cell::new(0);
+    let inside = inside_house(map, infos, it, &probes);
+    let none = std::cell::Cell::new(0);
+    let how = if let Some(facing) = wall_facing(it, infos) {
+        format!("wall, side seen {facing:?}")
+    } else if is_post(it, infos) {
+        "post".to_string()
+    } else if let Some(side) = hangs_on_wall(map, infos, it, &none) {
+        format!("lamp on a wall, side {side:?}")
+    } else if under_roof(map, infos, it, &none) {
+        "under a roof".to_string()
+    } else {
+        "under the open sky".to_string()
+    };
+    format!("room {id} shape {} at {},{},{}: {} ({how}, {} looks)", it.shape, it.x, it.y, it.z, if inside { "inside" } else { "outside" }, probes.get())
+}
+
 /// Does a wall or post go on right next to this side of a post (a post in
 /// the middle of a wall: that side is not seen)?
 fn walled(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, _): (i32, i32), probes: &std::cell::Cell<usize>) -> bool {
