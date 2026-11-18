@@ -96,6 +96,13 @@ const BELOW: i32 = 104;
 const FLAT_REACH: i32 = 40;
 /// Fires light what stands up to this high above their ground.
 const FIRE_REACH: i32 = 48;
+/// Above the height a flat light reaches (lava, a fire field) its light
+/// does not stop at once but fades out over this much: rocks standing in
+/// lava are put together from pieces one above the other, and the lower
+/// ones were lit in full, the one above not at all (a hard line across
+/// the rock). Lamps and fires keep the hard end: their light is not to
+/// reach through a ceiling into the room above.
+const FADE_ABOVE: i32 = 48;
 
 /// Height of a lamp post below its lamp.
 const POST: i32 = 80;
@@ -122,6 +129,8 @@ pub struct Light {
     pub item: usize,
     /// Is it inside a house (under a roof)? None: not known.
     pub inside: Option<bool>,
+    /// A flat light (lava, a fire field): fades out above `top`.
+    pub soft: bool,
 }
 
 /// A flame bolt (and the fireball 260): a hot core, yellow-white (`core`),
@@ -252,14 +261,15 @@ impl Game {
             // (a fire's box is often taller than the room it burns in: its
             // light ends at the height of a room, not on the roof above)
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
+            let soft = zd <= 8;
             if lamp_seen {
-                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, item: i, inside: None });
+                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, item: i, inside: None, soft });
                 if let Some((core_radius, core_rgb)) = core_of(it.shape) {
-                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, item: i, inside: None });
+                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, item: i, inside: None, soft });
                 }
             }
             if ground_seen {
-                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, item: i, inside: None });
+                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, item: i, inside: None, soft });
             }
         }
         out
@@ -338,6 +348,8 @@ struct Field {
     z: i32,
     top: i32,
     inside: Option<bool>,
+    /// Fades out above `top` (see `FADE_ABOVE`).
+    soft: bool,
     /// The first point of the grid (in grid steps) and its size in points.
     gx0: i32,
     gy0: i32,
@@ -355,16 +367,16 @@ impl Field {
 
 /// The lights grouped by height, each group added up in its grid.
 fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
-    let mut groups: Vec<(i32, i32, Option<bool>, Vec<&Light>)> = Vec::new();
+    let mut groups: Vec<(i32, i32, Option<bool>, bool, Vec<&Light>)> = Vec::new();
     for l in lights {
-        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.inside) {
-            Some(g) => g.3.push(l),
-            None => groups.push((l.z, l.top, l.inside, vec![l])),
+        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.inside && g.3 == l.soft) {
+            Some(g) => g.4.push(l),
+            None => groups.push((l.z, l.top, l.inside, l.soft, vec![l])),
         }
     }
     groups
         .into_iter()
-        .filter_map(|(z, top, inside, ls)| {
+        .filter_map(|(z, top, inside, soft, ls)| {
             // the part of the picture the group reaches, in grid points
             let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
             for l in &ls {
@@ -411,7 +423,7 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
                     }
                 }
             });
-            Some(Field { z, top, inside, gx0, gy0, gw, gh, values })
+            Some(Field { z, top, inside, soft, gx0, gy0, gw, gh, values })
         })
         .collect()
 }
@@ -492,9 +504,17 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 // not on what stands above the light or lies far below it
                 // and a roof only from a light as high as it (the slopes of
                 // a roof come down lower than a candle in the house stands)
+                let mut share = 1.0;
                 if let Some((foot, top)) = height {
-                    if foot >= f.top || top < f.z - BELOW || (roof && foot >= f.z) {
+                    if top < f.z - BELOW || (roof && foot >= f.z) {
                         continue;
+                    }
+                    if foot >= f.top {
+                        // (a flat light fades out above its reach)
+                        if !f.soft || foot >= f.top + FADE_ABOVE {
+                            continue;
+                        }
+                        share = 1.0 - (foot - f.top + 1) as f32 / (FADE_ABOVE + 1) as f32;
                     }
                 }
                 // between the four grid points around the pixel
@@ -505,7 +525,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 for n in 0..3 {
                     let top = a[n] + (b[n] - a[n]) * fx;
                     let bottom = c[n] + (d[n] - c[n]) * fx;
-                    l[n] += top + (bottom - top) * fy;
+                    l[n] += (top + (bottom - top) * fy) * share;
                 }
             }
             let (r, g, b) = ((*px >> 16) & 0xFF, (*px >> 8) & 0xFF, *px & 0xFF);
