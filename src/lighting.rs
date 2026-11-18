@@ -659,7 +659,8 @@ pub fn light_inside(map: &crate::map::MapData, map_no: usize, infos: &[crate::sh
 }
 
 /// Is a thing inside a house? Of a wall or post the side seen counts,
-/// anything else is inside if under a roof.
+/// of a lamp on a wall the side it hangs on, anything else is inside if
+/// under a roof.
 /// `probes` counts the looks at the map.
 fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, probes: &std::cell::Cell<usize>) -> bool {
     match wall_facing(it, infos) {
@@ -673,8 +674,44 @@ fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it
                 open.into_iter().all(|side| faces_room(map, infos, it, side, probes))
             }
         }
-        None => under_roof(map, infos, it, probes),
+        // a lamp on a wall: the side it hangs on (outside, under the eaves
+        // of the roof, it is still outside)
+        None => match hangs_on_wall(map, infos, it, probes) {
+            Some(side) => faces_room(map, infos, it, side, probes),
+            None => under_roof(map, infos, it, probes),
+        },
     }
+}
+
+/// A light hanging on a wall: the side of the wall it is on (pointing
+/// away from the wall). None for anything else.
+fn hangs_on_wall(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, probes: &std::cell::Cell<usize>) -> Option<(i32, i32)> {
+    light_of(it.shape, it.frame)?;
+    let si = infos.get(it.shape as usize)?;
+    let b = crate::map::WorldBox::of(it, si);
+    // flat against the wall: thin across it
+    if b.xd.min(b.yd) > 32 || b.xd == b.yd {
+        return None;
+    }
+    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
+    let across_x = b.xd < b.yd;
+    // a thin box just beyond each side across the wall, a little shorter
+    // than the lamp: the wall is on the side where it meets one
+    for toward in [-1, 1] {
+        let probe = if across_x {
+            let x = if toward < 0 { b.x - b.xd } else { b.x + 16 };
+            crate::map::WorldBox { x, y: b.y - 4, z: it.z, xd: 16, yd: (b.yd - 8).max(1), zd: b.zd.max(8) }
+        } else {
+            let y = if toward < 0 { b.y - b.yd } else { b.y + 16 };
+            crate::map::WorldBox { x: b.x - 4, y, z: it.z, xd: (b.xd - 8).max(1), yd: 16, zd: b.zd.max(8) }
+        };
+        probes.set(probes.get() + 1);
+        let pi = map.position_info(&probe, &nowhere, infos, it.id);
+        if !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos)) {
+            return Some(if across_x { (-toward, 0) } else { (0, -toward) });
+        }
+    }
+    None
 }
 
 /// Does a wall or post go on right next to this side of a post (a post in
