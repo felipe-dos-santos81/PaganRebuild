@@ -834,22 +834,43 @@ impl Sight {
             // another thing: its side towards the light
             Target::Box(x0, y0, x1, y1, z) => (lx.clamp(x0, x1), ly.clamp(y0, y1), z),
         };
+        // The squares the line from the light to the point crosses, one
+        // after the other (each once); the first 24 units are the light's
+        // own (the wall or pillar a lamp hangs on), the last 12 the point's
+        // (the foot of the wall it is on).
         let (dx, dy) = ((tx - lx) as f32, (ty - ly) as f32);
         let len = (dx * dx + dy * dy).sqrt();
-        // looked at every half square; the first steps are the light's own
-        // (the wall or pillar a lamp hangs on), the last ones the point's
-        // (the foot of the wall it is on)
-        let step = SIGHT_CELL as f32 / 2.0;
-        let steps = ((len - 12.0) / step).floor() as i32;
-        for k in (24.0 / step) as i32..=steps {
-            let f = k as f32 * step / len;
-            let (x, y) = (lx + (dx * f) as i32, ly + (dy * f) as i32);
-            let (cx, cy) = ((x - self.x0).div_euclid(SIGHT_CELL), (y - self.y0).div_euclid(SIGHT_CELL));
-            if cx < 0 || cy < 0 || cx >= self.n || cy >= self.n {
-                return true;
+        if len <= 36.0 {
+            return true;
+        }
+        let (t0, t1) = (24.0 / len, (len - 12.0) / len);
+        let cell = SIGHT_CELL as f32;
+        let (fx, fy) = ((lx - self.x0) as f32 / cell, (ly - self.y0) as f32 / cell);
+        let (mut cx, mut cy) = (fx.floor() as i32, fy.floor() as i32);
+        let (ux, uy) = (dx / cell, dy / cell);
+        let (sx, sy) = (if ux > 0.0 { 1 } else { -1 }, if uy > 0.0 { 1 } else { -1 });
+        // how far along the line (0..1) the next border in x and in y is, and between borders
+        let next = |f: f32, u: f32, c: i32| if u > 0.0 { (c as f32 + 1.0 - f) / u } else if u < 0.0 { (c as f32 - f) / u } else { f32::MAX };
+        let (mut nx, mut ny) = (next(fx, ux, cx), next(fy, uy, cy));
+        let (stx, sty) = (if ux != 0.0 { 1.0 / ux.abs() } else { f32::MAX }, if uy != 0.0 { 1.0 / uy.abs() } else { f32::MAX });
+        let mut t = 0.0f32;
+        while t < t1 {
+            let leave = nx.min(ny);
+            if leave > t0 {
+                if cx < 0 || cy < 0 || cx >= self.n || cy >= self.n {
+                    return true;
+                }
+                if self.tops[(cy * self.n + cx) as usize] > tz {
+                    return false;
+                }
             }
-            if self.tops[(cy * self.n + cx) as usize] > tz {
-                return false;
+            t = leave;
+            if nx < ny {
+                cx += sx;
+                nx += stx;
+            } else {
+                cy += sy;
+                ny += sty;
             }
         }
         true
