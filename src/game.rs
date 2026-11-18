@@ -1181,7 +1181,20 @@ impl Game {
             } else {
                 (Vec::new(), std::borrow::Cow::Borrowed(&lights[..]))
             };
-            crate::lighting::apply(surf, &lights[..], look, ids, &map.items, infos, &rooms, room_look.filter(|_| !rooms.is_empty()));
+            // where each thing painted stands in the picture (for the
+            // height of each pixel of it), only with lava or fire about
+            let origins: Vec<(i32, i32)> = if angle == 0.0 && lights.iter().any(|l| l.soft) {
+                let mut o = vec![(i32::MIN, 0); map.items.len()];
+                for p in &self.view.painted {
+                    if let Some(slot) = o.get_mut(p.index) {
+                        *slot = (p.sx, p.sy);
+                    }
+                }
+                o
+            } else {
+                Vec::new()
+            };
+            crate::lighting::apply(surf, &lights[..], look, ids, &map.items, infos, &rooms, room_look.filter(|_| !rooms.is_empty()), &origins);
         }
 
         // the way to the place chosen (option "map with guide")

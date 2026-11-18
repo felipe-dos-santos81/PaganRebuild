@@ -97,8 +97,11 @@ const FLAT_REACH: i32 = 40;
 /// Fires light what stands up to this high above their ground.
 const FIRE_REACH: i32 = 48;
 /// A flat light (lava, a fire field) does not end at a height but fades
-/// with the height above its ground: in full up to `SOFT_FULL`, then less
-/// and less, gone after another `SOFT_FADE`. Rocks standing in lava are
+/// with the height above its ground, pixel by pixel (a tall thing is lit
+/// at its foot and less higher up): in full up to `SOFT_FULL`, then less
+/// and less, gone after another `SOFT_FADE`. Judged by the foot of each
+/// thing alone, the pieces of a wall of rock side by side were lit
+/// differently all over, and their edges showed as stripes. Rocks standing in lava are
 /// put together from pieces one above the other, and the floor of a way
 /// rises in steps of 8: with a hard end (lit in full up to 40, above not
 /// at all) a hard line ran across a rock or a way; fading over 48 still
@@ -443,8 +446,12 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
 /// `rooms` (may be empty): for the things (by index), are they inside a
 /// house (`IN_HOUSE`, `OUTSIDE`, 0: not known); `inner`: the look of the
 /// rooms of the house the Avatar is in (see the top of this file).
+/// `origins` (may be empty): for the things painted (by index), where the
+/// point they stand on (their corner at the front, at their foot) is in
+/// the picture, to tell how high above its foot a pixel of a tall thing
+/// is (see `SOFT_FADE`).
 #[allow(clippy::too_many_arguments)]
-pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], rooms: &[u8], inner: Option<Look>) {
+pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], rooms: &[u8], inner: Option<Look>, origins: &[(i32, i32)]) {
     let (w, h) = (surf.width, surf.height);
     // the dark keeps dark colours a little lighter than bright ones
     // (multiplying all alike made dark floors and carpets black): the
@@ -495,6 +502,16 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             let si = thing.and_then(|it| infos.get(it.shape as usize));
             let height = thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8)));
             let roof = si.is_some_and(|si| si.roof);
+            // How high this pixel is in the world: a tall thing (a wall of
+            // rock) rises from its foot, and a pixel higher up in the
+            // picture than the foot below it is that much higher. Its front
+            // corner at the foot is at (sx0, sy0); the foot runs back from
+            // there half a pixel up for every pixel to the side. Flat things
+            // lie at their foot all over.
+            let pixel_z = height.map(|(foot, top)| match index.and_then(|i| origins.get(i)).filter(|o| o.0 != i32::MIN) {
+                Some(&(sx0, sy0)) => foot + (sy0 - (x - sx0).abs() / 2 - y).clamp(0, top - foot),
+                None => foot,
+            });
             let mut l = [0.0f32; 3];
             for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
                 if x < x0 || y < fy0 || x >= x1 || y >= fy1 {
@@ -516,8 +533,11 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                     }
                     if f.soft {
                         // (a flat light fades with the height above its
-                        // ground, which lies `FLAT_REACH` below its top)
-                        let above = foot - (f.top - FLAT_REACH) - SOFT_FULL;
+                        // ground, which lies `FLAT_REACH` below its top;
+                        // the height of this very pixel: a tall rock is lit
+                        // at its foot and less higher up, and the pieces of
+                        // a wall of rock side by side meet without a seam)
+                        let above = pixel_z.unwrap_or(foot) - (f.top - FLAT_REACH) - SOFT_FULL;
                         if above >= SOFT_FADE {
                             continue;
                         }
