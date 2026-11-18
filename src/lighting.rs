@@ -878,8 +878,11 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
             }
             // (a pixel to the side is 4 world units)
             let reach = (4.0 * l.radius) as i32 + 64;
-            let n = 2 * reach / SIGHT_CELL + 1;
-            let (x0, y0) = (l.wx - reach, l.wy - reach);
+            let n = 2 * reach / SIGHT_CELL + 2;
+            // the squares lie fixed in the world (a flickering light changes
+            // its reach from picture to picture: squares laid out from it
+            // moved, and the edges of its shadows with them)
+            let (x0, y0) = ((l.wx - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL, (l.wy - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL);
             let mut blocked = vec![false; (n * n) as usize];
             let mut any = false;
             for i in map.items_near(l.wx, l.wy, reach + 128) {
