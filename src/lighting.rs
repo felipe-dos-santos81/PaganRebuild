@@ -88,6 +88,18 @@ impl Look {
 
 /// Lights reach this much further than their radius in `light_of`.
 const FURTHER: f32 = 1.35;
+/// Flat lights (lava, fire fields) lie in fields of dozens of pieces, and
+/// their light added up stayed strong almost to the end of its reach and
+/// then fell off within a few pixels: between two fields of lava the
+/// floor had a dark band with hard edges, like a shadow. Each piece
+/// reaches this much further, a little weaker, and falls off sooner and
+/// more gently (`SOFT_FALLOFF`): near the lava it looks as before, the
+/// way into the dark is long.
+const SOFT_REACH: f32 = 1.8;
+const SOFT_STRENGTH: f32 = 0.9;
+/// The light of a flat light at a distance d (0..1 of its reach) is
+/// (1 - d^2) to this power.
+const SOFT_FALLOFF: i32 = 3;
 /// A light falls on what reaches at least up to this much below it (a lamp
 /// on an upper floor does not light the room under it).
 const BELOW: i32 = 104;
@@ -233,9 +245,11 @@ impl Game {
                 continue;
             }
             let Some((radius, rgb, flickers)) = light_of(it.shape, it.frame) else { continue };
-            let radius = radius * FURTHER;
             let Some(si) = self.data.infos.get(it.shape as usize).copied() else { continue };
             let (xd, yd, zd) = si.footpad(it.flags & crate::map::FLG_FLIPPED != 0);
+            // a flat light (lava, a fire field): see `SOFT_REACH`
+            let soft = zd <= 8;
+            let (radius, rgb) = if soft { (radius * FURTHER * SOFT_REACH, rgb.map(|c| c * SOFT_STRENGTH)) } else { (radius * FURTHER, rgb) };
             // from the middle of the thing
             // (a tall fire lights the ground around it most: from low in it)
             let mid = if flickers { (zd / 2).min(16) } else { zd / 2 };
@@ -269,7 +283,6 @@ impl Game {
             // (a fire's box is often taller than the room it burns in: its
             // light ends at the height of a room, not on the roof above)
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
-            let soft = zd <= 8;
             if lamp_seen {
                 out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, item: i, inside: None, soft });
                 if let Some((core_radius, core_rgb)) = core_of(it.shape) {
@@ -421,8 +434,9 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
                             if d2 >= 1.0 {
                                 continue;
                             }
-                            // soft towards the edge
-                            let f = (1.0 - d2) * (1.0 - 0.4 * d2) * lamp;
+                            // soft towards the edge (flat lights longer and
+                            // more gently, see `SOFT_REACH`)
+                            let f = if soft { (1.0 - d2).powi(SOFT_FALLOFF) } else { (1.0 - d2) * (1.0 - 0.4 * d2) } * lamp;
                             let p = &mut v[row + (gx - gx0) as usize];
                             for c in 0..3 {
                                 p[c] += f * l.rgb[c];
