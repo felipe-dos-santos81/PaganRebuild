@@ -289,7 +289,7 @@ impl ViewState {
             ambient_now: None,
             sky_was: None,
             covered_seen: (usize::MAX, HashMap::default()),
-            rooms_seen: crate::lighting::RoomsSeen::new(),
+            rooms_seen: (usize::MAX, HashMap::default()),
             room_light: (0.0, 0),
             cam_vel: (0.0, 0.0, 0.0),
             cam_target: None,
