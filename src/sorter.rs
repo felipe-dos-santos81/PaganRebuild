@@ -330,6 +330,8 @@ pub struct Sorter {
     grid_h: i32,
     /// Per item: the last new item that looked at it (to take each once).
     seen: Vec<usize>,
+    /// The items a new one is compared with (kept, not made anew each time).
+    near: Vec<usize>,
     /// The figure climbing onto a ledge (index in the caller's list) and
     /// the height it climbs from.
     pub climbing: Option<(usize, i32)>,
@@ -349,6 +351,7 @@ impl Sorter {
             grid_w,
             grid_h,
             seen: Vec::new(),
+            near: Vec::new(),
             climbing: None,
         }
     }
@@ -439,7 +442,8 @@ impl Sorter {
         // (as ScummVM's sorter walks its whole list), so the result is the same.
         let new_idx = self.items.len();
         let (cols, rows) = self.cells(&si.sr);
-        let mut near: Vec<usize> = Vec::new();
+        let mut near = std::mem::take(&mut self.near);
+        near.clear();
         for r in rows.clone() {
             for c in cols.clone() {
                 for &i in &self.grid[(r * self.grid_w + c) as usize] {
@@ -470,6 +474,7 @@ impl Sorter {
                 }
             }
         }
+        self.near = near;
         self.items.push(si);
         self.seen.push(0);
         for r in rows {
