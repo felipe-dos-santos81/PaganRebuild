@@ -428,6 +428,31 @@ impl<'a> PositionScan<'a> {
     }
 }
 
+/// A copy of the things of all maps, encoded exactly as the maps
+/// themselves (`HashMap<usize, MapData>`, in the same order): the autosave
+/// encodes it in the background while the game goes on.
+pub struct MapsCopy(Vec<(usize, MapCopy)>);
+
+/// What of a map goes into a savegame (the fields `MapData` saves, in
+/// their order).
+#[derive(serde::Serialize)]
+struct MapCopy {
+    items: Vec<Item>,
+    next_id: u32,
+}
+
+impl MapsCopy {
+    pub fn of(maps: &HashMap<usize, MapData>) -> MapsCopy {
+        MapsCopy(maps.iter().map(|(&n, m)| (n, MapCopy { items: m.items.clone(), next_id: m.next_id })).collect())
+    }
+}
+
+impl serde::Serialize for MapsCopy {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_map(self.0.iter().map(|(n, m)| (n, m)))
+    }
+}
+
 const CHUNK_SHIFT: i32 = 9;
 const FIRST_ITEM_ID: u32 = 256;
 
@@ -609,5 +634,25 @@ impl MapData {
             }
         }
         scan.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The copy of the maps for the autosave is encoded byte for byte as
+    /// the maps themselves.
+    #[test]
+    fn maps_copy_encodes_as_the_maps() {
+        let mut maps: HashMap<usize, MapData> = HashMap::default();
+        for n in [5, 0, 41, 12] {
+            let mut m = MapData { items: Vec::new(), grid: HashMap::default(), by_id: HashMap::default(), next_id: FIRST_ITEM_ID };
+            for i in 0..n {
+                m.add(Item { x: i * 32, y: 7 - i, z: n, shape: 100 + i as u32, frame: 2, quality: 9, flags: 0x40, hatched: i % 2 == 0, ..Item::default() });
+            }
+            maps.insert(n as usize, m);
+        }
+        assert_eq!(bincode::serialize(&maps).unwrap(), bincode::serialize(&MapsCopy::of(&maps)).unwrap());
     }
 }

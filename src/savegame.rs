@@ -39,12 +39,22 @@ pub struct SlotInfo {
 /// Size of the encoded SlotInfo.
 const INFO_LEN: usize = 8;
 
-/// The body of a savegame. One list of fields makes both the form it is
+/// The body of a savegame. One list of fields makes both the forms it is
 /// written from (borrowed from the game) and the form it is read into:
 /// the values stand in the file one after the other without names, so
-/// the two must agree in every field and in their order.
+/// the two must agree in every field and in their order. The maps stand
+/// apart (between the fields before them and those after): they are by
+/// far the largest part, and the autosave at a change of map encodes a
+/// copy of them in the background (see `save_to_in_background`).
 macro_rules! body {
-    ($($name:ident: $ty:ty,)*) => {
+    ($($head:ident: $hty:ty,)* ; maps ; $($name:ident: $ty:ty,)*) => {
+        /// The fields before the maps.
+        #[derive(serde::Serialize)]
+        struct SaveHead<'a> {
+            $($head: &'a $hty,)*
+        }
+
+        /// The fields after the maps.
         #[derive(serde::Serialize)]
         struct SaveRef<'a> {
             $($name: &'a $ty,)*
@@ -52,6 +62,8 @@ macro_rules! body {
 
         #[derive(serde::Deserialize)]
         struct SaveData {
+            $($head: $hty,)*
+            maps: HashMap<usize, MapData>,
             $($name: $ty,)*
         }
     };
@@ -62,7 +74,9 @@ body! {
     cur_map: usize,
     tick: u32,
     rng: Rng,
-    maps: HashMap<usize, MapData>,
+    ;
+    maps
+    ;
     npcs: Vec<Npc>,
     actors: HashMap<u16, Mover>,
     npc_dirs: HashMap<u16, u8>,
@@ -343,12 +357,16 @@ impl Game {
         Ok(path)
     }
 
-    /// As save_to, but the file is written in the background: the game
-    /// does not wait for it (the autosave at a map change would make the
-    /// picture stumble). Saves written this way go one after the other.
+    /// As save_to, but the file is encoded and written in the background:
+    /// the game does not wait for it (the autosave at a map change made the
+    /// picture stumble: encoding the maps alone took some 25 ms, three
+    /// times as long on the Steam Deck). Only a copy of the maps' things is
+    /// made here, the rest is small. Saves written this way go one after
+    /// the other.
     pub fn save_to_in_background(&self, slot: usize) -> Result<(), String> {
         let path = self.save_path(slot).ok_or("no folder for savegames (APPDATA is not set)")?;
-        let bytes = self.save_bytes()?;
+        let (head, tail) = self.save_parts()?;
+        let maps = crate::map::MapsCopy::of(&self.maps);
         let mut last = WRITING.lock().map_err(|_| "save: lock".to_string())?;
         // one after the other: the new one waits for the one before
         let before = last.take();
@@ -356,7 +374,12 @@ impl Game {
             if let Some(h) = before {
                 let _ = h.join();
             }
-            if let Err(err) = write_file(&path, &bytes) {
+            let mut bytes = head;
+            let written = put(&mut bytes, &maps).and_then(|()| {
+                bytes.extend_from_slice(&tail);
+                write_file(&path, &bytes)
+            });
+            if let Err(err) = written {
                 eprintln!("save: {err}");
             }
         }));
@@ -365,6 +388,15 @@ impl Game {
 
     /// The game encoded as a savegame.
     fn save_bytes(&self) -> Result<Vec<u8>, String> {
+        let (mut bytes, tail) = self.save_parts()?;
+        put(&mut bytes, &self.maps)?;
+        bytes.extend_from_slice(&tail);
+        Ok(bytes)
+    }
+
+    /// The game encoded as a savegame, without the maps: what stands
+    /// before them, and what after.
+    fn save_parts(&self) -> Result<(Vec<u8>, Vec<u8>), String> {
         if self.avatar_died.is_some() {
             return Err("cannot save while the Avatar is dying".into());
         }
@@ -376,12 +408,8 @@ impl Game {
         }
         let globals = self.scripts.usecode.globals().to_vec();
         let music = self.audio.requested();
+        let head = SaveHead { language: &self.language, cur_map: &self.cur_map, tick: &self.tick, rng: &self.rng };
         let data = SaveRef {
-            language: &self.language,
-            cur_map: &self.cur_map,
-            tick: &self.tick,
-            rng: &self.rng,
-            maps: &self.maps,
             npcs: &self.people.npcs,
             actors: &self.actors,
             npc_dirs: &self.people.npc_dirs,
@@ -416,10 +444,13 @@ impl Game {
         let info = SlotInfo { map: self.cur_map as u32, game_seconds: self.game_seconds() };
         put(&mut bytes, &info)?;
         debug_assert_eq!(bytes.len(), 12 + INFO_LEN);
-        put(&mut bytes, &data)?;
+        put(&mut bytes, &head)?;
+        // (here the maps)
+        let mut tail = Vec::new();
+        put(&mut tail, &data)?;
         // behind the body: what later versions added, as named blocks
-        Appended::write(self, &mut bytes)?;
-        Ok(bytes)
+        Appended::write(self, &mut tail)?;
+        Ok((bytes, tail))
     }
 
     /// What is not in a savegame and belongs to the game left behind
