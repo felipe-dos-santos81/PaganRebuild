@@ -819,9 +819,11 @@ pub struct Sight {
     y0: i32,
     n: i32,
     tops: Vec<i32>,
-    /// Where the light's lines start: its middle, or the nearest free spot
-    /// beside it when its middle lies in the wall it hangs on.
+    /// Where the light's lines start (see `sights`).
     from: (i32, i32),
+    /// The world box around all walls (x0, y0, x1, y1): a line that stays
+    /// outside it meets none (most lines in an open square).
+    walls: (i32, i32, i32, i32),
 }
 
 impl Sight {
@@ -856,6 +858,10 @@ impl Sight {
         // point's. (Skipping the first 24 units as the light's own let the
         // light of a lamp on a wall slip through the wall beside it, onto
         // the floor inside by the door.)
+        let (wx0, wy0, wx1, wy1) = self.walls;
+        if lx.max(tx) < wx0 || lx.min(tx) > wx1 || ly.max(ty) < wy0 || ly.min(ty) > wy1 {
+            return true;
+        }
         let (dx, dy) = ((tx - lx) as f32, (ty - ly) as f32);
         let len = (dx * dx + dy * dy).sqrt();
         if len <= end + 1.0 {
@@ -933,6 +939,7 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
             let (x0, y0) = ((l.wx - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL, (l.wy - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL);
             let mut tops = vec![i32::MIN; (n * n) as usize];
             let mut any = false;
+            let mut around = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
             let near = map.items_near(l.wx, l.wy, reach + 128);
             let (mut walls, mut posts) = (Vec::new(), Vec::new());
             for &i in &near {
@@ -949,6 +956,7 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
                 let (cy0, cy1) = (first(b.y - b.yd - y0).max(0), last(b.y - y0).min(n - 1));
                 for cy in cy0..=cy1 {
                     for cx in cx0..=cx1 {
+                        around = (around.0.min(x0 + cx * SIGHT_CELL), around.1.min(y0 + cy * SIGHT_CELL), around.2.max(x0 + (cx + 1) * SIGHT_CELL), around.3.max(y0 + (cy + 1) * SIGHT_CELL));
                         let top = &mut tops[(cy * n + cx) as usize];
                         *top = (*top).max(b.z + b.zd);
                         any = true;
@@ -973,7 +981,7 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
                     }
                 }
             }
-            any.then_some(Sight { x0, y0, n, tops, from })
+            any.then_some(Sight { x0, y0, n, tops, from, walls: around })
         })
         .collect()
 }
