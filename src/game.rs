@@ -1171,16 +1171,10 @@ impl Game {
             // the things in the rooms of the house the Avatar is in
             // what is inside a house and what outside (lights do not
             // shine from one to the other), only under the open sky
-            let (rooms, lights) = if angle == 0.0 && sky {
-                let rooms = crate::lighting::rooms(&self.view.painted, map, *cur_map, infos, rooms_seen);
-                let lights: Vec<crate::lighting::Light> = lights
-                    .iter()
-                    .map(|l| crate::lighting::Light { inside: crate::lighting::light_inside(map, *cur_map, infos, l.item, rooms_seen), ..*l })
-                    .collect();
-                (rooms, std::borrow::Cow::Owned(lights))
-            } else {
-                (Vec::new(), std::borrow::Cow::Borrowed(&lights[..]))
-            };
+            let rooms = if angle == 0.0 && sky { crate::lighting::rooms(&self.view.painted, map, *cur_map, infos, rooms_seen) } else { Vec::new() };
+            // walls cast shadows (only known for the view as in the original)
+            let to_world = |sx: i32, sy: i32, z: i32| xf.to_world(sx, sy, z);
+            let shadows = (angle == 0.0).then(|| crate::lighting::Shadows { sights: crate::lighting::sights(map, infos, lights), to_world: &to_world });
             // where each thing painted stands in the picture (for the
             // height of each pixel of it), only with lava or fire about
             let origins: Vec<(i32, i32)> = if angle == 0.0 && lights.iter().any(|l| l.soft) {
@@ -1194,7 +1188,7 @@ impl Game {
             } else {
                 Vec::new()
             };
-            crate::lighting::apply(surf, &lights[..], look, ids, &map.items, infos, &rooms, room_look.filter(|_| !rooms.is_empty()), &origins);
+            crate::lighting::apply(surf, &lights[..], look, ids, &map.items, infos, &rooms, room_look.filter(|_| !rooms.is_empty()), &origins, shadows);
         }
 
         // the way to the place chosen (option "map with guide")

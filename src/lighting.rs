@@ -10,10 +10,13 @@
 //! outside, as if a fire or a lamp burnt somewhere (many houses have none).
 //! What is seen of the outside keeps the light of outside.
 //!
-//! Lights inside a house (under a roof) light only what is inside, and
-//! lights outside only what is outside: a candle does not shine through
-//! the wall onto the street, a lamp on the wall not into the room. Walls
-//! themselves are lit from both sides (they belong to both).
+//! Walls cast shadows: the light of a lamp or fire does not reach what
+//! lies behind a wall from it (a candle does not shine through the wall
+//! onto the street, a lamp outside on the wall not into the room, but onto
+//! the ground before the house, under the eaves of its roof too). Of a wall
+//! only the side seen is lit, and only by lights on that side. Whether a
+//! thing stands in a room under a roof (`rooms`) only decides the general
+//! light of the rooms.
 //!
 //! A light only falls on what is about as high as it, not on a floor or
 //! roof above it (the lamps in a house would light its roof). This is done
@@ -145,10 +148,9 @@ pub struct Light {
     /// that height or higher is above the light: a ceiling, a roof).
     pub z: i32,
     pub top: i32,
-    /// The thing giving the light (index into the items).
-    pub item: usize,
-    /// Is it inside a house (under a roof)? None: not known.
-    pub inside: Option<bool>,
+    /// Where it is in the world (x, y of its middle).
+    pub wx: i32,
+    pub wy: i32,
     /// A flat light (lava, a fire field): fades out above `top`.
     pub soft: bool,
 }
@@ -280,17 +282,18 @@ impl Game {
                 1.0
             };
             let z = it.z + mid;
+            let (wx, wy) = (it.x - xd / 2, it.y - yd / 2);
             // (a fire's box is often taller than the room it burns in: its
             // light ends at the height of a room, not on the roof above)
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
             if lamp_seen {
-                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, item: i, inside: None, soft });
+                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, wx, wy, soft });
                 if let Some((core_radius, core_rgb)) = core_of(it.shape) {
-                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, item: i, inside: None, soft });
+                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, wx, wy, soft });
                 }
             }
             if ground_seen {
-                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, item: i, inside: None, soft });
+                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, wx, wy, soft });
             }
         }
         out
@@ -364,11 +367,10 @@ fn is_lava(shape: u32) -> bool {
 /// for every pixel.
 const CELL: i32 = 4;
 
-/// The lights of one height (inside or outside), added up in the grid.
+/// The lights of one height, added up in the grid.
 struct Field {
     z: i32,
     top: i32,
-    inside: Option<bool>,
     /// Fades with the height (see `SOFT_FADE`).
     soft: bool,
     /// The first point of the grid (in grid steps) and its size in points.
@@ -387,20 +389,22 @@ impl Field {
 }
 
 /// The lights grouped by height, each group added up in its grid.
-fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
-    let mut groups: Vec<(i32, i32, Option<bool>, bool, Vec<&Light>)> = Vec::new();
-    for l in lights {
-        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.inside && g.3 == l.soft) {
-            Some(g) => g.4.push(l),
-            None => groups.push((l.z, l.top, l.inside, l.soft, vec![l])),
+/// `shade`: does a light (by its place in the list) reach a grid point
+/// (1), or is a wall in the way (0)?
+fn fields(lights: &[Light], lamp: f32, w: i32, h: i32, shade: &(dyn Fn(usize, i32, i32) -> f32 + Sync)) -> Vec<Field> {
+    let mut groups: Vec<(i32, i32, bool, Vec<(usize, &Light)>)> = Vec::new();
+    for (n, l) in lights.iter().enumerate() {
+        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.soft) {
+            Some(g) => g.3.push((n, l)),
+            None => groups.push((l.z, l.top, l.soft, vec![(n, l)])),
         }
     }
     groups
         .into_iter()
-        .filter_map(|(z, top, inside, soft, ls)| {
+        .filter_map(|(z, top, soft, ls)| {
             // the part of the picture the group reaches, in grid points
             let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-            for l in &ls {
+            for (_, l) in &ls {
                 (x0, x1) = (x0.min(l.x - l.radius), x1.max(l.x + l.radius));
                 (y0, y1) = (y0.min(l.y - l.radius / 2.0), y1.max(l.y + l.radius / 2.0));
             }
@@ -419,7 +423,7 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
             let parts: Vec<_> = values.chunks_mut((band * gw) as usize).enumerate().map(|(b, v)| (b as i32 * band, v)).collect();
             crate::pool::each(parts, |_, (r0, v)| {
                 let rows = v.len() as i32 / gw;
-                for l in &ls {
+                for &(n, l) in &ls {
                     let half = l.radius / 2.0;
                     let rr = l.radius * l.radius;
                     // the grid points within reach of the light
@@ -437,6 +441,10 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
                             // soft towards the edge (flat lights longer and
                             // more gently, see `SOFT_REACH`)
                             let f = if soft { (1.0 - d2).powi(SOFT_FALLOFF) } else { (1.0 - d2) * (1.0 - 0.4 * d2) } * lamp;
+                            let f = f * shade(n, gx, gy);
+                            if f <= 0.0 {
+                                continue;
+                            }
                             let p = &mut v[row + (gx - gx0) as usize];
                             for c in 0..3 {
                                 p[c] += f * l.rgb[c];
@@ -445,7 +453,7 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
                     }
                 }
             });
-            Some(Field { z, top, inside, soft, gx0, gy0, gw, gh, values })
+            Some(Field { z, top, soft, gx0, gy0, gw, gh, values })
         })
         .collect()
 }
@@ -465,7 +473,7 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
 /// the picture, to tell how high above its foot a pixel of a tall thing
 /// is (see `SOFT_FADE`).
 #[allow(clippy::too_many_arguments)]
-pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], rooms: &[u8], inner: Option<Look>, origins: &[(i32, i32)]) {
+pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], rooms: &[u8], inner: Option<Look>, origins: &[(i32, i32)], shadows: Option<Shadows>) {
     let (w, h) = (surf.width, surf.height);
     // the dark keeps dark colours a little lighter than bright ones
     // (multiplying all alike made dark floors and carpets black): the
@@ -480,9 +488,26 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         Some(inner) => (dims(inner), inner.lamp),
         None => (dim_out, lamp_out),
     };
-    let fields = fields(lights, 1.0, w, h);
-    let spans: Vec<_> = fields.iter().map(Field::pixels).collect();
     let ids = if ids.len() == (w * h) as usize { ids } else { &[] };
+    // what each point of the grid shows, in the world (for the shadows of walls)
+    let targets = match &shadows {
+        Some(sh) if !ids.is_empty() => targets(ids, items, infos, w, h, sh.to_world),
+        _ => Vec::new(),
+    };
+    let tw = w / CELL + 2;
+    let shade = |n: usize, gx: i32, gy: i32| -> f32 {
+        let (Some(sh), Some(l)) = (&shadows, lights.get(n)) else { return 1.0 };
+        let Some(Some(sight)) = sh.sights.get(n) else { return 1.0 };
+        if gx < 0 || gy < 0 || gx >= tw {
+            return 1.0;
+        }
+        match targets.get((gy * tw + gx) as usize) {
+            Some(&Some(t)) if !sight.sees(t, (l.wx, l.wy)) => 0.0,
+            _ => 1.0,
+        }
+    };
+    let fields = fields(lights, 1.0, w, h, &shade);
+    let spans: Vec<_> = fields.iter().map(Field::pixels).collect();
     // in bands of rows, one per processor core
     let cores = crate::pool::cores() as i32;
     let band = ((h + cores - 1) / cores).max(1);
@@ -507,12 +532,6 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             }
             let room = index.and_then(|i| rooms.get(i).copied()).unwrap_or(0);
             let (dim, lamp) = if room == IN_HOUSE && inner.is_some() { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
-            // inside or outside (of a wall: the side seen)
-            let side = match room {
-                IN_HOUSE => Some(true),
-                OUTSIDE => Some(false),
-                _ => None,
-            };
             let si = thing.and_then(|it| infos.get(it.shape as usize));
             let height = thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8)));
             let roof = si.is_some_and(|si| si.roof);
@@ -530,12 +549,6 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
                 if x < x0 || y < fy0 || x >= x1 || y >= fy1 {
                     continue;
-                }
-                // not from inside a house out, or from outside in
-                if let (Some(a), Some(b)) = (f.inside, side) {
-                    if a != b {
-                        continue;
-                    }
                 }
                 // not on what stands above the light or lies far below it
                 // and a roof only from a light as high as it (the slopes of
@@ -640,27 +653,8 @@ pub fn rooms(painted: &[crate::view::Painted], map: &crate::map::MapData, map_no
     out
 }
 
-/// Is a light inside a house (as `rooms`, but always found out: there
-/// are only a few lights)?
-pub fn light_inside(map: &crate::map::MapData, map_no: usize, infos: &[crate::shape::ShapeInfo], item: usize, seen: &mut RoomsSeen) -> Option<bool> {
-    if seen.0 != map_no {
-        *seen = (map_no, HashMap::default());
-    }
-    let it = map.items.get(item)?;
-    let at = (it.x, it.y, it.z);
-    if let Some(&(was, inside)) = seen.1.get(&it.id) {
-        if was == at {
-            return Some(inside);
-        }
-    }
-    let inside = inside_house(map, infos, it, &std::cell::Cell::new(0));
-    seen.1.insert(it.id, (at, inside));
-    Some(inside)
-}
-
 /// Is a thing inside a house? Of a wall or post the side seen counts,
-/// of a lamp on a wall the side it hangs on, anything else is inside if
-/// under a roof.
+/// anything else is inside if under a roof.
 /// `probes` counts the looks at the map.
 fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, probes: &std::cell::Cell<usize>) -> bool {
     match wall_facing(it, infos) {
@@ -674,44 +668,8 @@ fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it
                 open.into_iter().all(|side| faces_room(map, infos, it, side, probes))
             }
         }
-        // a lamp on a wall: the side it hangs on (outside, under the eaves
-        // of the roof, it is still outside)
-        None => match hangs_on_wall(map, infos, it, probes) {
-            Some(side) => faces_room(map, infos, it, side, probes),
-            None => under_roof(map, infos, it, probes),
-        },
+        None => under_roof(map, infos, it, probes),
     }
-}
-
-/// A light hanging on a wall: the side of the wall it is on (pointing
-/// away from the wall). None for anything else.
-fn hangs_on_wall(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, probes: &std::cell::Cell<usize>) -> Option<(i32, i32)> {
-    light_of(it.shape, it.frame)?;
-    let si = infos.get(it.shape as usize)?;
-    let b = crate::map::WorldBox::of(it, si);
-    // flat against the wall: thin across it
-    if b.xd.min(b.yd) > 32 || b.xd == b.yd {
-        return None;
-    }
-    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
-    let across_x = b.xd < b.yd;
-    // a thin box just beyond each side across the wall, a little shorter
-    // than the lamp: the wall is on the side where it meets one
-    for toward in [-1, 1] {
-        let probe = if across_x {
-            let x = if toward < 0 { b.x - b.xd } else { b.x + 16 };
-            crate::map::WorldBox { x, y: b.y - 4, z: it.z, xd: 16, yd: (b.yd - 8).max(1), zd: b.zd.max(8) }
-        } else {
-            let y = if toward < 0 { b.y - b.yd } else { b.y + 16 };
-            crate::map::WorldBox { x: b.x - 4, y, z: it.z, xd: (b.xd - 8).max(1), yd: 16, zd: b.zd.max(8) }
-        };
-        probes.set(probes.get() + 1);
-        let pi = map.position_info(&probe, &nowhere, infos, it.id);
-        if !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos)) {
-            return Some(if across_x { (-toward, 0) } else { (0, -toward) });
-        }
-    }
-    None
 }
 
 /// For the test command `room`: whether a thing counts as inside a house
@@ -725,8 +683,6 @@ pub fn explain_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo]
         format!("wall, side seen {facing:?}")
     } else if is_post(it, infos) {
         "post".to_string()
-    } else if let Some(side) = hangs_on_wall(map, infos, it, &none) {
-        format!("lamp on a wall, side {side:?}")
     } else if under_roof(map, infos, it, &none) {
         "under a roof".to_string()
     } else {
@@ -826,4 +782,162 @@ fn under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
     let b = crate::map::WorldBox::of(it, si);
     let probe = crate::map::WorldBox { x: b.x - b.xd / 2 + 16, y: b.y - b.yd / 2 + 16, z: it.z, xd: 32, yd: 32, zd: 16 };
     map.position_info(&probe, &probe, infos, it.id).roof_z.is_some()
+}
+
+/// The shadows of walls for `apply`: for each light (by its place in the
+/// list) the walls about it (None: nothing is in the way, as for lava and
+/// fire fields), and where a point of the picture lies in the world.
+pub struct Shadows<'a> {
+    pub sights: Vec<Option<Sight>>,
+    pub to_world: &'a (dyn Fn(i32, i32, i32) -> (i32, i32) + Sync),
+}
+
+/// Size of a square of `Sight`, in world units (a wall is 32 thick).
+const SIGHT_CELL: i32 = 8;
+
+/// What stands in the way of one light: the squares around it covered by
+/// a wall at its height.
+pub struct Sight {
+    /// The world position of the first square, and squares per side.
+    x0: i32,
+    y0: i32,
+    n: i32,
+    blocked: Vec<bool>,
+}
+
+impl Sight {
+    /// Is a point reached by the light at `from`, with no wall between?
+    fn sees(&self, t: Target, from: (i32, i32)) -> bool {
+        let (lx, ly) = from;
+        let (tx, ty) = match t {
+            Target::Point(x, y) => (x, y),
+            // of a wall only the side seen is lit, by lights on that side
+            Target::Face(x, y, across_x, at) => {
+                if (if across_x { lx } else { ly }) < at {
+                    return false;
+                }
+                (x, y)
+            }
+            // another thing: its side towards the light
+            Target::Box(x0, y0, x1, y1) => (lx.clamp(x0, x1), ly.clamp(y0, y1)),
+        };
+        let (dx, dy) = ((tx - lx) as f32, (ty - ly) as f32);
+        let len = (dx * dx + dy * dy).sqrt();
+        // looked at every half square; the first steps are the light's own
+        // (the wall or pillar a lamp hangs on), the last ones the point's
+        // (the foot of the wall it is on)
+        let step = SIGHT_CELL as f32 / 2.0;
+        let steps = ((len - 12.0) / step).floor() as i32;
+        for k in (24.0 / step) as i32..=steps {
+            let f = k as f32 * step / len;
+            let (x, y) = (lx + (dx * f) as i32, ly + (dy * f) as i32);
+            let (cx, cy) = ((x - self.x0).div_euclid(SIGHT_CELL), (y - self.y0).div_euclid(SIGHT_CELL));
+            if cx < 0 || cy < 0 || cx >= self.n || cy >= self.n {
+                return true;
+            }
+            if self.blocked[(cy * self.n + cx) as usize] {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Does a thing cast a shadow for a light at height `z`: a wall or a post,
+/// standing at that height (not a person, a lamp or furniture)? Its box if
+/// so.
+fn casts_shadow(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo], z: i32) -> Option<crate::map::WorldBox> {
+    if it.is_actor() || !it.in_world() || light_of(it.shape, it.frame).is_some() {
+        return None;
+    }
+    let si = infos.get(it.shape as usize)?;
+    let b = crate::map::WorldBox::of(it, si);
+    let wall = wall_facing(it, infos).is_some() || is_post(it, infos);
+    (wall && it.z <= z && it.z + b.zd > z).then_some(b)
+}
+
+/// The walls around each light (by its place in the list), for
+/// `Shadows`. Lava and fire fields (flat lights) get none.
+pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], lights: &[Light]) -> Vec<Option<Sight>> {
+    lights
+        .iter()
+        .map(|l| {
+            if l.soft {
+                return None;
+            }
+            // (a pixel to the side is 4 world units)
+            let reach = (4.0 * l.radius) as i32 + 64;
+            let n = 2 * reach / SIGHT_CELL + 1;
+            let (x0, y0) = (l.wx - reach, l.wy - reach);
+            let mut blocked = vec![false; (n * n) as usize];
+            let mut any = false;
+            for i in map.items_near(l.wx, l.wy, reach + 128) {
+                let Some(b) = map.items.get(i).and_then(|it| casts_shadow(it, infos, l.z)) else { continue };
+                // the squares whose middle lies in the box (not wider than the wall)
+                let first = |lo: i32| (lo - SIGHT_CELL / 2).div_euclid(SIGHT_CELL) + 1;
+                let last = |hi: i32| (hi - SIGHT_CELL / 2).div_euclid(SIGHT_CELL);
+                let (cx0, cx1) = (first(b.x - b.xd - x0).max(0), last(b.x - x0).min(n - 1));
+                let (cy0, cy1) = (first(b.y - b.yd - y0).max(0), last(b.y - y0).min(n - 1));
+                for cy in cy0..=cy1 {
+                    for cx in cx0..=cx1 {
+                        blocked[(cy * n + cx) as usize] = true;
+                        any = true;
+                    }
+                }
+            }
+            any.then_some(Sight { x0, y0, n, blocked })
+        })
+        .collect()
+}
+
+/// Where a point of the picture lies in the world, for the shadows.
+#[derive(Clone, Copy)]
+enum Target {
+    /// On a floor or the ground (x, y).
+    Point(i32, i32),
+    /// On the side seen of a wall: (x, y), the wall across x (true) or y,
+    /// and the x or y of that side.
+    Face(i32, i32, bool, i32),
+    /// On another thing: its box (x0, y0, x1, y1).
+    Box(i32, i32, i32, i32),
+}
+
+/// For every point of the grid (CELL pixels apart, with one more row and
+/// column), what the picture shows there, in the world.
+fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], w: i32, h: i32, to_world: &(dyn Fn(i32, i32, i32) -> (i32, i32) + Sync)) -> Vec<Option<Target>> {
+    let (tw, th) = (w / CELL + 2, h / CELL + 2);
+    let mut out = vec![None; (tw * th) as usize];
+    for gy in 0..th {
+        for gx in 0..tw {
+            let (sx, sy) = (gx * CELL, gy * CELL);
+            if sx >= w || sy >= h {
+                continue;
+            }
+            let Some(it) = ids.get((sy * w + sx) as usize).and_then(|&id| id.checked_sub(1)).and_then(|i| items.get(i as usize)) else { continue };
+            let Some(si) = infos.get(it.shape as usize) else { continue };
+            let b = crate::map::WorldBox::of(it, si);
+            // (to_world at height z: x = x0 + 4z and y = y0 + 4z, with
+            // (x0, y0) the point at height 0)
+            out[(gy * tw + gx) as usize] = Some(match wall_facing(it, infos) {
+                // the side seen, at the height this pixel shows
+                Some((1, _)) => {
+                    let (x0, _) = to_world(sx, sy, 0);
+                    let (_, y) = to_world(sx, sy, (it.x - x0) / 4);
+                    Target::Face(it.x, y, true, it.x)
+                }
+                Some(_) => {
+                    let (_, y0) = to_world(sx, sy, 0);
+                    let (x, _) = to_world(sx, sy, (it.y - y0) / 4);
+                    Target::Face(x, it.y, false, it.y)
+                }
+                // a floor or the ground: its top
+                None if si.land => {
+                    let (x, y) = to_world(sx, sy, it.z + b.zd);
+                    Target::Point(x, y)
+                }
+                None => Target::Box(b.x - b.xd, b.y - b.yd, b.x, b.y),
+            });
+        }
+    }
+    out
 }
