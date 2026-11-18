@@ -491,6 +491,9 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         Some(inner) => (dims(inner), inner.lamp),
         None => (dim_out, lamp_out),
     };
+    // the colours of pixels no light reaches, looked up (most of the
+    // picture at night)
+    let (unlit_out, unlit_in) = (unlit_table(look), inner.map_or_else(|| unlit_table(look), unlit_table));
     let ids = if ids.len() == (w * h) as usize { ids } else { &[] };
     // The grid moves with the world, not with the picture: a point of it
     // stays on the same spot while the view scrolls (else the edges of the
@@ -541,6 +544,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         id: u32,
         own_light: bool,
         dim: &'a [[f32; 256]; 3],
+        unlit: &'a [u8],
         lamp: f32,
         height: Option<(i32, i32)>,
         roof: bool,
@@ -550,12 +554,13 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         let index = id.checked_sub(1).map(|i| i as usize);
         let thing = index.and_then(|i| items.get(i));
         let room = index.and_then(|i| rooms.get(i).copied()).unwrap_or(0);
-        let (dim, lamp) = if room == IN_HOUSE && inner.is_some() { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
+        let (dim, unlit, lamp) = if room == IN_HOUSE && inner.is_some() { (&dim_in, &unlit_in[..], lamp_in) } else { (&dim_out, &unlit_out[..], lamp_out) };
         let si = thing.and_then(|it| infos.get(it.shape as usize));
         Seen {
             id,
             own_light: thing.is_some_and(|it| light_of(it.shape, it.frame).is_some()),
             dim,
+            unlit,
             lamp,
             height: thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8))),
             roof: si.is_some_and(|si| si.roof),
@@ -566,15 +571,24 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         let mut seen = seen_of(0);
         // per row: the fields that reach it, with their row in the grid and
         // the share of the row below (k: index of the left point)
-        let mut active: Vec<(&Field, i32, i32, usize, f32)> = Vec::with_capacity(fields.len());
+        let mut active: Vec<(&Field, i32, i32, usize)> = Vec::with_capacity(fields.len());
+        // per active field: its light along this row at each grid column
+        // (between the grid rows above and below)
+        let mut rowvals: Vec<Vec<[f32; 3]>> = fields.iter().map(|f| vec![[0.0; 3]; f.gw as usize]).collect();
         for (row, line) in pixels.chunks_mut(w as usize).enumerate() {
             let y = y0 + row as i32;
             let uy = y + dy;
             active.clear();
-            for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
+            for (fi, (f, &(x0, fy0, x1, fy1))) in fields.iter().zip(&spans).enumerate() {
                 if uy >= fy0 && uy < fy1 {
                     let gy = (uy - fy0) / CELL;
-                    active.push((f, x0, x1, (gy * f.gw) as usize, ((uy - fy0) % CELL) as f32 / CELL as f32));
+                    let fy = ((uy - fy0) % CELL) as f32 / CELL as f32;
+                    let (above, below) = ((gy * f.gw) as usize, ((gy + 1) * f.gw) as usize);
+                    for (gx, v) in rowvals[fi].iter_mut().enumerate() {
+                        let (a, c) = (f.values[above + gx], f.values[below + gx]);
+                        *v = [a[0] + (c[0] - a[0]) * fy, a[1] + (c[1] - a[1]) * fy, a[2] + (c[2] - a[2]) * fy];
+                    }
+                    active.push((f, x0, x1, fi));
                 }
             }
             for (xi, px) in line.iter_mut().enumerate() {
@@ -600,7 +614,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 let mut l = [0.0f32; 3];
                 // (where the pixel is in the grid)
                 let ux = x + dx;
-                for &(f, x0, x1, krow, fy) in &active {
+                for &(f, x0, x1, fi) in &active {
                     if ux < x0 || ux >= x1 {
                         continue;
                     }
@@ -628,18 +642,21 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                         }
                     }
                     // between the four grid points around the pixel
-                    let gx = (ux - x0) / CELL;
+                    let gx = ((ux - x0) / CELL) as usize;
                     let fx = ((ux - x0) % CELL) as f32 / CELL as f32;
-                    let k = krow + gx as usize;
-                    let (a, b, c, d) = (f.values[k], f.values[k + 1], f.values[k + f.gw as usize], f.values[k + f.gw as usize + 1]);
+                    let row = &rowvals[fi];
+                    let (a, b) = (row[gx], row[gx + 1]);
                     for n in 0..3 {
-                        let top = a[n] + (b[n] - a[n]) * fx;
-                        let bottom = c[n] + (d[n] - c[n]) * fx;
-                        l[n] += (top + (bottom - top) * fy) * share;
+                        l[n] += (a[n] + (b[n] - a[n]) * fx) * share;
                     }
                 }
                 let (r, g, b) = ((*px >> 16) & 0xFF, (*px >> 8) & 0xFF, *px & 0xFF);
                 let luma = ((77 * r + 151 * g + 28 * b) >> 8) as usize;
+                if l == [0.0; 3] {
+                    let t = &seen.unlit[luma * 768..];
+                    *px = (u32::from(t[r as usize]) << 16) | (u32::from(t[256 + g as usize]) << 8) | u32::from(t[512 + b as usize]);
+                    continue;
+                }
                 // where many lights meet (a field of lava) the light does not
                 // add up without end: at most as strong as one strong light,
                 // in its colour (else the rock by lava turned pale and pink)
@@ -657,6 +674,34 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     });
 }
 
+
+/// For pixels no light reaches: per brightness of the pixel (luma) and
+/// colour, the value each original value becomes in this general light
+/// (as `apply` works it out: `v * min(dim, MOST)`), 256 x 3 x 256 values.
+/// The last few tables are kept: the general light only changes slowly.
+fn unlit_table(look: Look) -> std::sync::Arc<Vec<u8>> {
+    static KEPT: std::sync::Mutex<Vec<([u32; 3], std::sync::Arc<Vec<u8>>)>> = std::sync::Mutex::new(Vec::new());
+    let key = look.ambient.map(f32::to_bits);
+    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, t)) = kept.iter().find(|(k, _)| *k == key) {
+        return t.clone();
+    }
+    let mut t = vec![0u8; 256 * 768];
+    for luma in 0..256 {
+        for c in 0..3 {
+            let k = look.ambient[c].powf(0.6 + 0.4 * luma as f32 / 255.0).min(MOST);
+            for v in 0..256 {
+                t[luma * 768 + c * 256 + v] = ((v as f32 * k) as u32).min(255) as u8;
+            }
+        }
+    }
+    let t = std::sync::Arc::new(t);
+    kept.push((key, t.clone()));
+    if kept.len() > 4 {
+        kept.remove(0);
+    }
+    t
+}
 
 /// What is known of things being in a room under a roof: the map, and by
 /// item id where the thing stood when looked at, and the answer.
@@ -1222,4 +1267,5 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
     });
     out
 }
+
 
