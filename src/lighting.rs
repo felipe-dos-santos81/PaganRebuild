@@ -489,12 +489,18 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         None => (dim_out, lamp_out),
     };
     let ids = if ids.len() == (w * h) as usize { ids } else { &[] };
+    // The grid moves with the world, not with the picture: a point of it
+    // stays on the same spot while the view scrolls (else the edges of the
+    // shadows, decided at the points, trembled when walking). Pixel x is
+    // at x + dx in the grid.
+    let (dx, dy) = shadows.as_ref().map_or((0, 0), |sh| ((-sh.anchor.0).rem_euclid(CELL), (-sh.anchor.1).rem_euclid(CELL)));
+    let moved: Vec<Light> = lights.iter().map(|l| Light { x: l.x + dx as f32, y: l.y + dy as f32, ..*l }).collect();
     // what each point of the grid shows, in the world (for the shadows of walls)
     let targets = match &shadows {
-        Some(sh) if !ids.is_empty() => targets(ids, items, infos, w, h, sh.to_world),
+        Some(sh) if !ids.is_empty() => targets(ids, items, infos, w, h, (dx, dy), sh.to_world),
         _ => Vec::new(),
     };
-    let tw = w / CELL + 2;
+    let tw = (w + dx) / CELL + 2;
     let shade = |n: usize, gx: i32, gy: i32| -> f32 {
         let (Some(sh), Some(l)) = (&shadows, lights.get(n)) else { return 1.0 };
         let Some(Some(sight)) = sh.sights.get(n) else { return 1.0 };
@@ -506,7 +512,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             _ => 1.0,
         }
     };
-    let fields = fields(lights, 1.0, w, h, &shade);
+    let fields = fields(&moved, 1.0, w + dx, h + dy, &shade);
     let spans: Vec<_> = fields.iter().map(Field::pixels).collect();
     // in bands of rows, one per processor core
     let cores = crate::pool::cores() as i32;
@@ -546,8 +552,10 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 None => foot,
             });
             let mut l = [0.0f32; 3];
+            // (where the pixel is in the grid)
+            let (ux, uy) = (x + dx, y + dy);
             for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
-                if x < x0 || y < fy0 || x >= x1 || y >= fy1 {
+                if ux < x0 || uy < fy0 || ux >= x1 || uy >= fy1 {
                     continue;
                 }
                 // not on what stands above the light or lies far below it
@@ -574,8 +582,8 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                     }
                 }
                 // between the four grid points around the pixel
-                let (gx, gy) = ((x - x0) / CELL, (y - fy0) / CELL);
-                let (fx, fy) = (((x - x0) % CELL) as f32 / CELL as f32, ((y - fy0) % CELL) as f32 / CELL as f32);
+                let (gx, gy) = ((ux - x0) / CELL, (uy - fy0) / CELL);
+                let (fx, fy) = (((ux - x0) % CELL) as f32 / CELL as f32, ((uy - fy0) % CELL) as f32 / CELL as f32);
                 let k = (gy * f.gw + gx) as usize;
                 let (a, b, c, d) = (f.values[k], f.values[k + 1], f.values[k + f.gw as usize], f.values[k + f.gw as usize + 1]);
                 for n in 0..3 {
@@ -790,6 +798,9 @@ fn under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
 pub struct Shadows<'a> {
     pub sights: Vec<Option<Sight>>,
     pub to_world: &'a (dyn Fn(i32, i32, i32) -> (i32, i32) + Sync),
+    /// Where the world's point 0, 0, 0 is in the picture (to keep the
+    /// grid in step with the world).
+    pub anchor: (i32, i32),
 }
 
 /// Size of a square of `Sight`, in world units (a wall is 32 thick).
@@ -903,14 +914,15 @@ enum Target {
 }
 
 /// For every point of the grid (CELL pixels apart, with one more row and
-/// column), what the picture shows there, in the world.
-fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], w: i32, h: i32, to_world: &(dyn Fn(i32, i32, i32) -> (i32, i32) + Sync)) -> Vec<Option<Target>> {
-    let (tw, th) = (w / CELL + 2, h / CELL + 2);
+/// column; pixel x is at x + dx in the grid), what the picture shows
+/// there, in the world.
+fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], w: i32, h: i32, (dx, dy): (i32, i32), to_world: &(dyn Fn(i32, i32, i32) -> (i32, i32) + Sync)) -> Vec<Option<Target>> {
+    let (tw, th) = ((w + dx) / CELL + 2, (h + dy) / CELL + 2);
     let mut out = vec![None; (tw * th) as usize];
     for gy in 0..th {
         for gx in 0..tw {
-            let (sx, sy) = (gx * CELL, gy * CELL);
-            if sx >= w || sy >= h {
+            let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
+            if sx < 0 || sy < 0 || sx >= w || sy >= h {
                 continue;
             }
             let Some(it) = ids.get((sy * w + sx) as usize).and_then(|&id| id.checked_sub(1)).and_then(|i| items.get(i as usize)) else { continue };
