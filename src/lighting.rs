@@ -599,26 +599,33 @@ pub const OUTSIDE: u8 = 1;
 /// For the things painted (by index into the items): does it stand in a
 /// room under a roof (`IN_HOUSE`, `OUTSIDE`)? The answers are kept
 /// (`seen`) while the thing stays where it is; new ones only as far as
-/// `ROOM_CHECKS` reaches per picture (a wall or post costs `WALL_COST`, it
-/// is looked at along several ways), the others are not known (0) until
-/// their turn comes a few pictures later (no stutter after loading).
+/// `ROOM_PROBES` looks at the map per picture, the others are not known
+/// (0) until their turn comes some pictures later (no stutter after
+/// loading or a change of map).
 pub fn rooms(painted: &[crate::view::Painted], map: &crate::map::MapData, map_no: usize, infos: &[crate::shape::ShapeInfo], seen: &mut RoomsSeen) -> Vec<u8> {
-    const ROOM_CHECKS: usize = 400;
-    const WALL_COST: usize = 8;
+    // The looks at the map are counted as they are made: a wall is looked
+    // at along three ways of up to 40 steps (up to 120 looks), a thing
+    // under a roof once. Counted as 8 for a wall and 400 per picture, the
+    // first picture in a town after a change of map made thousands of
+    // looks (7 ms here, about three times as long on the Steam Deck).
+    // In a town each look takes about 4 microseconds (wide boxes among
+    // many things); 150 take about half a millisecond, and a town is
+    // known after some 40 pictures, while the picture fades in after the
+    // change.
+    const ROOM_PROBES: usize = 150;
     if seen.0 != map_no {
         *seen = (map_no, HashMap::default());
     }
     let mut out = vec![0u8; map.items.len()];
-    let mut checks = 0;
+    let probes = std::cell::Cell::new(0);
     for p in painted {
         let Some(it) = map.items.get(p.index) else { continue };
         let at = (it.x, it.y, it.z);
         let known = seen.1.get(&it.id).filter(|(was, _)| *was == at).map(|&(_, inside)| inside);
         let inside = match known {
             Some(inside) => Some(inside),
-            None if checks < ROOM_CHECKS => {
-                checks += if wall_facing(it, infos).is_some() || is_post(it, infos) { WALL_COST } else { 1 };
-                let inside = inside_house(map, infos, it);
+            None if probes.get() < ROOM_PROBES => {
+                let inside = inside_house(map, infos, it, &probes);
                 seen.1.insert(it.id, (at, inside));
                 Some(inside)
             }
@@ -646,32 +653,33 @@ pub fn light_inside(map: &crate::map::MapData, map_no: usize, infos: &[crate::sh
             return Some(inside);
         }
     }
-    let inside = inside_house(map, infos, it);
+    let inside = inside_house(map, infos, it, &std::cell::Cell::new(0));
     seen.1.insert(it.id, (at, inside));
     Some(inside)
 }
 
 /// Is a thing inside a house? Of a wall or post the side seen counts,
 /// anything else is inside if under a roof.
-fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
+/// `probes` counts the looks at the map.
+fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, probes: &std::cell::Cell<usize>) -> bool {
     match wall_facing(it, infos) {
-        Some(facing) => faces_room(map, infos, it, facing),
+        Some(facing) => faces_room(map, infos, it, facing, probes),
         // a post or corner stone: the sides seen (not those a wall goes on from)
         None if is_post(it, infos) => {
-            let open: Vec<_> = [(1, 0), (0, 1)].into_iter().filter(|&side| !walled(map, infos, it, side)).collect();
+            let open: Vec<_> = [(1, 0), (0, 1)].into_iter().filter(|&side| !walled(map, infos, it, side, probes)).collect();
             if open.is_empty() {
-                under_roof(map, infos, it)
+                under_roof(map, infos, it, probes)
             } else {
-                open.into_iter().all(|side| faces_room(map, infos, it, side))
+                open.into_iter().all(|side| faces_room(map, infos, it, side, probes))
             }
         }
-        None => under_roof(map, infos, it),
+        None => under_roof(map, infos, it, probes),
     }
 }
 
 /// Does a wall or post go on right next to this side of a post (a post in
 /// the middle of a wall: that side is not seen)?
-fn walled(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, _): (i32, i32)) -> bool {
+fn walled(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, _): (i32, i32), probes: &std::cell::Cell<usize>) -> bool {
     let Some(si) = infos.get(it.shape as usize) else { return false };
     let b = crate::map::WorldBox::of(it, si);
     // a thin box just beyond that side, a little shorter than it
@@ -681,6 +689,7 @@ fn walled(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &cra
         crate::map::WorldBox { x: b.x - 4, y: b.y + 8, z: it.z + 8, xd: (b.xd - 8).max(1), yd: 8, zd: 24 }
     };
     let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
+    probes.set(probes.get() + 1);
     let pi = map.position_info(&probe, &nowhere, infos, it.id);
     !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos))
 }
@@ -713,7 +722,7 @@ fn is_post(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo]) -> bool {
 /// if each way meets another wall before the roof ends (a porch or the
 /// eaves are open to one side: that is outside). Walls right next to it
 /// do not count (the stones of the same pillar, a fireplace in front).
-fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, dy): (i32, i32)) -> bool {
+fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, dy): (i32, i32), probes: &std::cell::Cell<usize>) -> bool {
     const STEP: i32 = 32;
     const STEPS: i32 = 40;
     let Some(si) = infos.get(it.shape as usize) else { return false };
@@ -731,6 +740,7 @@ fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
             // wide across the way (not through a doorway)
             let (hx, hy) = if wx != 0 { (16, 48) } else { (48, 16) };
             let probe = crate::map::WorldBox { x: cx + hx, y: cy + hy, z: it.z + 8, xd: 2 * hx, yd: 2 * hy, zd: 24 };
+            probes.set(probes.get() + 1);
             let pi = map.position_info(&probe, &nowhere, infos, it.id);
             if pi.roof_z.is_none() {
                 open += 1;
@@ -752,8 +762,9 @@ fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
 /// Is there a roof above the middle of a thing (as the test that hides
 /// the roofs while the Avatar is below one)? (Also for a thing marked as a
 /// roof: many floors of houses are, as the ceiling of a room below.)
-fn under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
+fn under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, probes: &std::cell::Cell<usize>) -> bool {
     let Some(si) = infos.get(it.shape as usize) else { return false };
+    probes.set(probes.get() + 1);
     let b = crate::map::WorldBox::of(it, si);
     let probe = crate::map::WorldBox { x: b.x - b.xd / 2 + 16, y: b.y - b.yd / 2 + 16, z: it.z, xd: 32, yd: 32, zd: 16 };
     map.position_info(&probe, &probe, infos, it.id).roof_z.is_some()
