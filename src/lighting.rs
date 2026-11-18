@@ -807,30 +807,32 @@ pub struct Shadows<'a> {
 const SIGHT_CELL: i32 = 8;
 
 /// What stands in the way of one light: the squares around it covered by
-/// a wall at its height.
+/// a wall at its height, with the height of the wall's top (a wall only
+/// shades what lies lower than its top: the walk on top of a city wall is
+/// lit by a lamp hanging on the wall below it).
 pub struct Sight {
     /// The world position of the first square, and squares per side.
     x0: i32,
     y0: i32,
     n: i32,
-    blocked: Vec<bool>,
+    tops: Vec<i32>,
 }
 
 impl Sight {
     /// Is a point reached by the light at `from`, with no wall between?
     fn sees(&self, t: Target, from: (i32, i32)) -> bool {
         let (lx, ly) = from;
-        let (tx, ty) = match t {
-            Target::Point(x, y) => (x, y),
+        let (tx, ty, tz) = match t {
+            Target::Point(x, y, z) => (x, y, z),
             // of a wall only the side seen is lit, by lights on that side
-            Target::Face(x, y, across_x, at) => {
+            Target::Face(x, y, z, across_x, at) => {
                 if (if across_x { lx } else { ly }) < at {
                     return false;
                 }
-                (x, y)
+                (x, y, z)
             }
             // another thing: its side towards the light
-            Target::Box(x0, y0, x1, y1) => (lx.clamp(x0, x1), ly.clamp(y0, y1)),
+            Target::Box(x0, y0, x1, y1, z) => (lx.clamp(x0, x1), ly.clamp(y0, y1), z),
         };
         let (dx, dy) = ((tx - lx) as f32, (ty - ly) as f32);
         let len = (dx * dx + dy * dy).sqrt();
@@ -846,7 +848,7 @@ impl Sight {
             if cx < 0 || cy < 0 || cx >= self.n || cy >= self.n {
                 return true;
             }
-            if self.blocked[(cy * self.n + cx) as usize] {
+            if self.tops[(cy * self.n + cx) as usize] > tz {
                 return false;
             }
         }
@@ -890,7 +892,7 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
             // its reach from picture to picture: squares laid out from it
             // moved, and the edges of its shadows with them)
             let (x0, y0) = ((l.wx - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL, (l.wy - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL);
-            let mut blocked = vec![false; (n * n) as usize];
+            let mut tops = vec![i32::MIN; (n * n) as usize];
             let mut any = false;
             let near = map.items_near(l.wx, l.wy, reach + 128);
             let (mut walls, mut posts) = (Vec::new(), Vec::new());
@@ -908,12 +910,13 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
                 let (cy0, cy1) = (first(b.y - b.yd - y0).max(0), last(b.y - y0).min(n - 1));
                 for cy in cy0..=cy1 {
                     for cx in cx0..=cx1 {
-                        blocked[(cy * n + cx) as usize] = true;
+                        let top = &mut tops[(cy * n + cx) as usize];
+                        *top = (*top).max(b.z + b.zd);
                         any = true;
                     }
                 }
             }
-            any.then_some(Sight { x0, y0, n, blocked })
+            any.then_some(Sight { x0, y0, n, tops })
         })
         .collect()
 }
@@ -921,13 +924,13 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
 /// Where a point of the picture lies in the world, for the shadows.
 #[derive(Clone, Copy)]
 enum Target {
-    /// On a floor or the ground (x, y).
-    Point(i32, i32),
-    /// On the side seen of a wall: (x, y), the wall across x (true) or y,
-    /// and the x or y of that side.
-    Face(i32, i32, bool, i32),
-    /// On another thing: its box (x0, y0, x1, y1).
-    Box(i32, i32, i32, i32),
+    /// On a floor or the ground (x, y, height of its top).
+    Point(i32, i32, i32),
+    /// On the side seen of a wall: (x, y, height of its foot), the wall
+    /// across x (true) or y, and the x or y of that side.
+    Face(i32, i32, i32, bool, i32),
+    /// On another thing: its box (x0, y0, x1, y1) and the height of its foot.
+    Box(i32, i32, i32, i32, i32),
 }
 
 /// For every point of the grid (CELL pixels apart, with one more row and
@@ -952,19 +955,19 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
                 Some((1, _)) => {
                     let (x0, _) = to_world(sx, sy, 0);
                     let (_, y) = to_world(sx, sy, (it.x - x0) / 4);
-                    Target::Face(it.x, y, true, it.x)
+                    Target::Face(it.x, y, it.z, true, it.x)
                 }
                 Some(_) => {
                     let (_, y0) = to_world(sx, sy, 0);
                     let (x, _) = to_world(sx, sy, (it.y - y0) / 4);
-                    Target::Face(x, it.y, false, it.y)
+                    Target::Face(x, it.y, it.z, false, it.y)
                 }
                 // a floor or the ground: its top
                 None if si.land => {
                     let (x, y) = to_world(sx, sy, it.z + b.zd);
-                    Target::Point(x, y)
+                    Target::Point(x, y, it.z + b.zd)
                 }
-                None => Target::Box(b.x - b.xd, b.y - b.yd, b.x, b.y),
+                None => Target::Box(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
             });
         }
     }
