@@ -530,87 +530,128 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             (b as i32 * band, pixels, ids)
         })
         .collect();
+    // what is known of the thing seen at a pixel, worked out once for
+    // each run of pixels showing the same thing
+    struct Seen<'a> {
+        id: u32,
+        own_light: bool,
+        dim: &'a [[f32; 256]; 3],
+        lamp: f32,
+        height: Option<(i32, i32)>,
+        roof: bool,
+        origin: Option<(i32, i32)>,
+    }
+    let seen_of = |id: u32| -> Seen {
+        let index = id.checked_sub(1).map(|i| i as usize);
+        let thing = index.and_then(|i| items.get(i));
+        let room = index.and_then(|i| rooms.get(i).copied()).unwrap_or(0);
+        let (dim, lamp) = if room == IN_HOUSE && inner.is_some() { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
+        let si = thing.and_then(|it| infos.get(it.shape as usize));
+        Seen {
+            id,
+            own_light: thing.is_some_and(|it| light_of(it.shape, it.frame).is_some()),
+            dim,
+            lamp,
+            height: thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8))),
+            roof: si.is_some_and(|si| si.roof),
+            origin: index.and_then(|i| origins.get(i)).filter(|o| o.0 != i32::MIN).copied(),
+        }
+    };
     crate::pool::each(parts, |_, (y0, pixels, ids)| {
-        for (i, px) in pixels.iter_mut().enumerate() {
-            let (x, y) = (i as i32 % w, y0 + i as i32 / w);
-            // the thing seen here: how high it stands, and does it give light?
-            let index = ids.get(i).and_then(|&id| id.checked_sub(1)).map(|i| i as usize);
-            let thing = index.and_then(|i| items.get(i));
-            if thing.is_some_and(|it| light_of(it.shape, it.frame).is_some()) {
-                continue;
-            }
-            let room = index.and_then(|i| rooms.get(i).copied()).unwrap_or(0);
-            let (dim, lamp) = if room == IN_HOUSE && inner.is_some() { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
-            let si = thing.and_then(|it| infos.get(it.shape as usize));
-            let height = thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8)));
-            let roof = si.is_some_and(|si| si.roof);
-            // How high this pixel is in the world: a tall thing (a wall of
-            // rock) rises from its foot, and a pixel higher up in the
-            // picture than the foot below it is that much higher. Its front
-            // corner at the foot is at (sx0, sy0); the foot runs back from
-            // there half a pixel up for every pixel to the side. Flat things
-            // lie at their foot all over.
-            let pixel_z = height.map(|(foot, top)| match index.and_then(|i| origins.get(i)).filter(|o| o.0 != i32::MIN) {
-                Some(&(sx0, sy0)) => foot + (sy0 - (x - sx0).abs() / 2 - y).clamp(0, top - foot),
-                None => foot,
-            });
-            let mut l = [0.0f32; 3];
-            // (where the pixel is in the grid)
-            let (ux, uy) = (x + dx, y + dy);
+        let mut seen = seen_of(0);
+        // per row: the fields that reach it, with their row in the grid and
+        // the share of the row below (k: index of the left point)
+        let mut active: Vec<(&Field, i32, i32, usize, f32)> = Vec::with_capacity(fields.len());
+        for (row, line) in pixels.chunks_mut(w as usize).enumerate() {
+            let y = y0 + row as i32;
+            let uy = y + dy;
+            active.clear();
             for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
-                if ux < x0 || uy < fy0 || ux >= x1 || uy >= fy1 {
+                if uy >= fy0 && uy < fy1 {
+                    let gy = (uy - fy0) / CELL;
+                    active.push((f, x0, x1, (gy * f.gw) as usize, ((uy - fy0) % CELL) as f32 / CELL as f32));
+                }
+            }
+            for (xi, px) in line.iter_mut().enumerate() {
+                let x = xi as i32;
+                let id = ids.get(row * w as usize + xi).copied().unwrap_or(0);
+                if id != seen.id {
+                    seen = seen_of(id);
+                }
+                // what gives light keeps its own colours
+                if seen.own_light {
                     continue;
                 }
-                // not on what stands above the light or lies far below it
-                // and a roof only from a light as high as it (the slopes of
-                // a roof come down lower than a candle in the house stands)
-                let mut share = 1.0;
-                if let Some((foot, top)) = height {
-                    if top < f.z - BELOW || (roof && foot >= f.z) {
+                // How high this pixel is in the world: a tall thing (a wall of
+                // rock) rises from its foot, and a pixel higher up in the
+                // picture than the foot below it is that much higher. Its front
+                // corner at the foot is at (sx0, sy0); the foot runs back from
+                // there half a pixel up for every pixel to the side. Flat things
+                // lie at their foot all over.
+                let pixel_z = seen.height.map(|(foot, top)| match seen.origin {
+                    Some((sx0, sy0)) => foot + (sy0 - (x - sx0).abs() / 2 - y).clamp(0, top - foot),
+                    None => foot,
+                });
+                let mut l = [0.0f32; 3];
+                // (where the pixel is in the grid)
+                let ux = x + dx;
+                for &(f, x0, x1, krow, fy) in &active {
+                    if ux < x0 || ux >= x1 {
                         continue;
                     }
-                    if f.soft {
-                        // (a flat light fades with the height above its
-                        // ground, which lies `FLAT_REACH` below its top;
-                        // the height of this very pixel: a tall rock is lit
-                        // at its foot and less higher up, and the pieces of
-                        // a wall of rock side by side meet without a seam)
-                        let above = pixel_z.unwrap_or(foot) - (f.top - FLAT_REACH) - SOFT_FULL;
-                        if above >= SOFT_FADE {
+                    // not on what stands above the light or lies far below it
+                    // and a roof only from a light as high as it (the slopes of
+                    // a roof come down lower than a candle in the house stands)
+                    let mut share = 1.0;
+                    if let Some((foot, top)) = seen.height {
+                        if top < f.z - BELOW || (seen.roof && foot >= f.z) {
                             continue;
                         }
-                        share = (1.0 - above.max(0) as f32 / SOFT_FADE as f32).min(1.0);
-                    } else if foot >= f.top {
-                        continue;
+                        if f.soft {
+                            // (a flat light fades with the height above its
+                            // ground, which lies `FLAT_REACH` below its top;
+                            // the height of this very pixel: a tall rock is lit
+                            // at its foot and less higher up, and the pieces of
+                            // a wall of rock side by side meet without a seam)
+                            let above = pixel_z.unwrap_or(foot) - (f.top - FLAT_REACH) - SOFT_FULL;
+                            if above >= SOFT_FADE {
+                                continue;
+                            }
+                            share = (1.0 - above.max(0) as f32 / SOFT_FADE as f32).min(1.0);
+                        } else if foot >= f.top {
+                            continue;
+                        }
+                    }
+                    // between the four grid points around the pixel
+                    let gx = (ux - x0) / CELL;
+                    let fx = ((ux - x0) % CELL) as f32 / CELL as f32;
+                    let k = krow + gx as usize;
+                    let (a, b, c, d) = (f.values[k], f.values[k + 1], f.values[k + f.gw as usize], f.values[k + f.gw as usize + 1]);
+                    for n in 0..3 {
+                        let top = a[n] + (b[n] - a[n]) * fx;
+                        let bottom = c[n] + (d[n] - c[n]) * fx;
+                        l[n] += (top + (bottom - top) * fy) * share;
                     }
                 }
-                // between the four grid points around the pixel
-                let (gx, gy) = ((ux - x0) / CELL, (uy - fy0) / CELL);
-                let (fx, fy) = (((ux - x0) % CELL) as f32 / CELL as f32, ((uy - fy0) % CELL) as f32 / CELL as f32);
-                let k = (gy * f.gw + gx) as usize;
-                let (a, b, c, d) = (f.values[k], f.values[k + 1], f.values[k + f.gw as usize], f.values[k + f.gw as usize + 1]);
-                for n in 0..3 {
-                    let top = a[n] + (b[n] - a[n]) * fx;
-                    let bottom = c[n] + (d[n] - c[n]) * fx;
-                    l[n] += (top + (bottom - top) * fy) * share;
-                }
+                let (r, g, b) = ((*px >> 16) & 0xFF, (*px >> 8) & 0xFF, *px & 0xFF);
+                let luma = ((77 * r + 151 * g + 28 * b) >> 8) as usize;
+                // where many lights meet (a field of lava) the light does not
+                // add up without end: at most as strong as one strong light,
+                // in its colour (else the rock by lava turned pale and pink)
+                let l = l.map(|v| v * seen.lamp);
+                let most = l[0].max(l[1]).max(l[2]);
+                let l = if most > ADDED { l.map(|v| v * ADDED / most) } else { l };
+                let dim = seen.dim;
+                let ch = |v: u32, c: usize| {
+                    let k = (dim[c][luma] + l[c]).min(MOST);
+                    ((v as f32 * k + 255.0 * TINT * l[c]) as u32).min(255)
+                };
+                *px = (ch(r, 0) << 16) | (ch(g, 1) << 8) | ch(b, 2);
             }
-            let (r, g, b) = ((*px >> 16) & 0xFF, (*px >> 8) & 0xFF, *px & 0xFF);
-            let luma = ((77 * r + 151 * g + 28 * b) >> 8) as usize;
-            // where many lights meet (a field of lava) the light does not
-            // add up without end: at most as strong as one strong light,
-            // in its colour (else the rock by lava turned pale and pink)
-            let l = l.map(|v| v * lamp);
-            let most = l[0].max(l[1]).max(l[2]);
-            let l = if most > ADDED { l.map(|v| v * ADDED / most) } else { l };
-            let ch = |v: u32, c: usize| {
-                let k = (dim[c][luma] + l[c]).min(MOST);
-                ((v as f32 * k + 255.0 * TINT * l[c]) as u32).min(255)
-            };
-            *px = (ch(r, 0) << 16) | (ch(g, 1) << 8) | ch(b, 2);
         }
     });
 }
+
 
 /// What is known of things being in a room under a roof: the map, and by
 /// item id where the thing stood when looked at, and the answer.
