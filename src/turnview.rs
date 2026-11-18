@@ -75,13 +75,24 @@ impl Xform {
         self.angle.to_radians().sin_cos()
     }
 
+    /// Where the view's top left corner is in the untransformed picture
+    /// (as view.rs places it).
+    fn corner(&self) -> (i32, i32) {
+        let (cx, cy, cz) = self.cam;
+        (crate::sorter::figure_sx(cx, cy) - self.size.0 / 2, crate::sorter::figure_sy(cx, cy, cz) - self.size.1 / 2)
+    }
+
     /// World position to view position.
     pub fn to_screen(&self, x: i32, y: i32, z: i32) -> (i32, i32) {
-        let (cx, cy, cz) = self.cam;
         if !self.turned() {
-            // the usual isometric projection, exactly as ScummVM's renderer has it
-            let (ox, oy) = ((cx - cy) / 4 - self.size.0 / 2, (cx + cy) / 8 - cz - self.size.1 / 2);
-            return ((x - y) / 4 - ox, (x + y) / 8 - z - oy);
+            // the usual isometric projection, rounded as view.rs draws: the
+            // view's corner as the camera (sorter::figure_sx), things by
+            // their x and y apart (with (x - y) / 4 rounded towards zero
+            // the mapping was a pixel off whenever the camera stood at
+            // x < y, and changed with every step of the gliding camera: the
+            // shadows of the lights trembled)
+            let (ox, oy) = self.corner();
+            return (x.div_euclid(4) - y.div_euclid(4) - ox, x.div_euclid(8) + y.div_euclid(8) - z - oy);
         }
         let (sx, sy) = self.projected(x as f64, y as f64, z as f64);
         let (ox, oy) = self.origin();
@@ -90,9 +101,8 @@ impl Xform {
 
     /// The world position (x, y) at height `z` seen at a view position.
     pub fn to_world(&self, sx: i32, sy: i32, z: i32) -> (i32, i32) {
-        let (cx, cy, cz) = self.cam;
         if !self.turned() {
-            let (ox, oy) = ((cx - cy) / 4 - self.size.0 / 2, (cx + cy) / 8 - cz - self.size.1 / 2);
+            let (ox, oy) = self.corner();
             let (ax, ay) = (sx + ox, sy + oy);
             return (2 * ax + 4 * (ay + z), 4 * (ay + z) - 2 * ax);
         }
