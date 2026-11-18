@@ -208,6 +208,8 @@ pub struct Play {
     /// PAGAN_FRAMETIME: how long the parts of a picture take.
     frame_times: Option<FrameTimes>,
     pacer: Pacer,
+    /// The map the pacing last saw (see `Pacer::settle`).
+    paced_map: Option<usize>,
     /// F2: pictures per second shown in the corner.
     fps: Option<Fps>,
     /// The key map last handed to the window (see bindings.rs).
@@ -285,6 +287,7 @@ impl Play {
             recent: std::collections::VecDeque::new(),
             frame_times,
             pacer,
+            paced_map: None,
             // (PAGAN_FPS=1: shown from the start)
             fps: crate::debug::env().fps.then(Fps::new),
             key_map: Default::default(),
@@ -1552,6 +1555,11 @@ impl Play {
             }
         }
         let t_vsync = Instant::now();
+        // on another map the first pictures do not count for the pace
+        if self.paced_map != Some(self.game.cur_map) {
+            self.paced_map = Some(self.game.cur_map);
+            self.pacer.settle();
+        }
         let times = self.pacer.refreshes();
         show(&mut self.window, &self.shown, &mut self.upscaled, times)?;
         self.pacer.shown();

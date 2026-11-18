@@ -23,13 +23,18 @@ pub struct Pacer {
     calm: u32,
     /// Pictures shown so far (the first ones, while things are loaded, do not count).
     count: u32,
+    /// Pictures still to come that do not count (see `settle`).
+    skip: u32,
 }
+
+/// How many pictures after a change of map do not count (see `settle`).
+const SETTLE: u32 = 120;
 
 impl Pacer {
     /// `period`: the screen's refresh time, as far as the system tells it.
     pub fn new(period: Option<Duration>) -> Pacer {
         let period = period.unwrap_or(Duration::from_micros(16_667)).clamp(Duration::from_millis(4), Duration::from_millis(40));
-        Pacer { period, last: Instant::now(), recent: Default::default(), every: 1, calm: 0, count: 0 }
+        Pacer { period, last: Instant::now(), recent: Default::default(), every: 1, calm: 0, count: 0, skip: 0 }
     }
 
     /// The screen's refresh time.
@@ -42,6 +47,17 @@ impl Pacer {
         self.every
     }
 
+    /// The Avatar has come to another map: the next
+    /// pictures have one-off work to do there (the change itself, finding
+    /// out which things stand in a house for the light, the models of the
+    /// turnable view), for about a second. They do not count: three of them
+    /// a little slow made the pace go down to every other refresh, and it
+    /// came back only seconds later (after a town gate, 90 pictures a
+    /// second became 45).
+    pub fn settle(&mut self) {
+        self.skip = SETTLE;
+    }
+
     /// For how many screen refreshes the next picture is to be shown.
     /// (Handing it over waits for the screen, see platform.rs.)
     pub fn refreshes(&mut self) -> u32 {
@@ -49,6 +65,10 @@ impl Pacer {
         self.count = self.count.saturating_add(1);
         if self.count < 60 {
             return 1;
+        }
+        if self.skip > 0 {
+            self.skip -= 1;
+            return if self.every == 2 && work < self.period { 2 } else { 1 };
         }
         self.recent.push_back(work);
         if self.recent.len() > 60 {
@@ -156,5 +176,38 @@ impl FrameTimes {
         );
         eprintln!("  {}", more());
         self.times.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Some slow pictures right after a change of map leave the pace as
+    /// it is; as many later on halve it.
+    #[test]
+    fn slow_pictures_after_a_change_of_map() {
+        let period = Duration::from_micros(11_111);
+        let mut p = Pacer::new(Some(period));
+        let picture = |p: &mut Pacer, ms: u64| {
+            p.last = Instant::now() - Duration::from_millis(ms);
+            p.refreshes()
+        };
+        for _ in 0..100 {
+            picture(&mut p, 5);
+        }
+        p.settle();
+        picture(&mut p, 40);
+        for _ in 0..30 {
+            picture(&mut p, 12);
+        }
+        assert_eq!(p.every(), 1);
+        for _ in 0..SETTLE {
+            picture(&mut p, 5);
+        }
+        for _ in 0..3 {
+            picture(&mut p, 12);
+        }
+        assert_eq!(p.every(), 2);
     }
 }
