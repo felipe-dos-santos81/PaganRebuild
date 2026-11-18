@@ -867,6 +867,13 @@ fn casts_shadow(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo], z: i32
     (wall && it.z <= z && it.z + b.zd > z).then_some(b)
 }
 
+/// Is a post part of a wall (a wall touches it): only then it casts a
+/// shadow (the corner of a house), not standing alone (the pole of a
+/// street lamp, a turret on the city wall, the bars of a cell).
+fn in_wall(post: &crate::map::WorldBox, walls: &[crate::map::WorldBox]) -> bool {
+    walls.iter().any(|w| w.x + 8 > post.x - post.xd && w.x - w.xd < post.x + 8 && w.y + 8 > post.y - post.yd && w.y - w.yd < post.y + 8)
+}
+
 /// The walls around each light (by its place in the list), for
 /// `Shadows`. Lava and fire fields (flat lights) get none.
 pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], lights: &[Light]) -> Vec<Option<Sight>> {
@@ -885,8 +892,15 @@ pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], ligh
             let (x0, y0) = ((l.wx - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL, (l.wy - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL);
             let mut blocked = vec![false; (n * n) as usize];
             let mut any = false;
-            for i in map.items_near(l.wx, l.wy, reach + 128) {
-                let Some(b) = map.items.get(i).and_then(|it| casts_shadow(it, infos, l.z)) else { continue };
+            let near = map.items_near(l.wx, l.wy, reach + 128);
+            let (mut walls, mut posts) = (Vec::new(), Vec::new());
+            for &i in &near {
+                let Some(it) = map.items.get(i) else { continue };
+                let Some(b) = casts_shadow(it, infos, l.z) else { continue };
+                if wall_facing(it, infos).is_some() { walls.push(b) } else { posts.push(b) }
+            }
+            posts.retain(|p| in_wall(p, &walls));
+            for b in walls.iter().chain(&posts) {
                 // the squares whose middle lies in the box (not wider than the wall)
                 let first = |lo: i32| (lo - SIGHT_CELL / 2).div_euclid(SIGHT_CELL) + 1;
                 let last = |hi: i32| (hi - SIGHT_CELL / 2).div_euclid(SIGHT_CELL);
