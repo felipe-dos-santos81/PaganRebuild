@@ -517,6 +517,25 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         }
         _ => Vec::new(),
     };
+    // Where the shadow of a wall begins, the light is mixed between four
+    // grid points of which some lie on another thing (a door lit, the floor
+    // behind it not): mixed across, a seam of light showed around the door
+    // and along the walls. There each pixel takes only the grid points on
+    // the thing it shows. `edge`: grid points in the shadow of some light;
+    // `on`: the thing (id + 1) seen at each grid point.
+    let mut edge = vec![false; if lit.is_empty() { 0 } else { (tw * th) as usize }];
+    for v in lit.iter().flatten() {
+        for (k, &reached) in v.v.iter().enumerate() {
+            if reached == 0 {
+                let (gx, gy) = (v.gx0 + k as i32 % v.w, v.gy0 + k as i32 / v.w);
+                edge[(gy * tw + gx) as usize] = true;
+            }
+        }
+    }
+    let on = |gx: i32, gy: i32| -> u32 {
+        let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
+        if sx < 0 || sy < 0 || sx >= w || sy >= h { 0 } else { ids.get((sy * w + sx) as usize).copied().unwrap_or(0) }
+    };
     let shade = |n: usize, gx: i32, gy: i32| -> f32 {
         match lit.get(n) {
             Some(Some(v)) => v.at(gx, gy),
@@ -614,6 +633,22 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 let mut l = [0.0f32; 3];
                 // (where the pixel is in the grid)
                 let ux = x + dx;
+                // by a shadow's edge: the share of each of the four grid
+                // points around the pixel, only those on the same thing
+                let (cgx, cgy) = (ux / CELL, uy / CELL);
+                let corners = [(cgx, cgy), (cgx + 1, cgy), (cgx, cgy + 1), (cgx + 1, cgy + 1)];
+                let near_edge = !edge.is_empty() && corners.iter().any(|&(gx, gy)| gx < tw && gy < th && edge[(gy * tw + gx) as usize]);
+                let own: Option<[f32; 4]> = near_edge.then(|| {
+                    let (fx, fy) = ((ux % CELL) as f32 / CELL as f32, (uy % CELL) as f32 / CELL as f32);
+                    let mut wts = [(1.0 - fx) * (1.0 - fy), fx * (1.0 - fy), (1.0 - fx) * fy, fx * fy];
+                    for (k, &(gx, gy)) in corners.iter().enumerate() {
+                        if on(gx, gy) != id {
+                            wts[k] = 0.0;
+                        }
+                    }
+                    let sum: f32 = wts.iter().sum();
+                    (sum > 0.0).then(|| wts.map(|v| v / sum))
+                }).flatten();
                 for &(f, x0, x1, fi) in &active {
                     if ux < x0 || ux >= x1 {
                         continue;
@@ -643,6 +678,15 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                     }
                     // between the four grid points around the pixel
                     let gx = ((ux - x0) / CELL) as usize;
+                    if let Some(wts) = own {
+                        let gyl = ((uy - f.gy0 * CELL) / CELL) as usize;
+                        let base = gyl * f.gw as usize + gx;
+                        let vals = [f.values[base], f.values[base + 1], f.values[base + f.gw as usize], f.values[base + f.gw as usize + 1]];
+                        for n in 0..3 {
+                            l[n] += (vals[0][n] * wts[0] + vals[1][n] * wts[1] + vals[2][n] * wts[2] + vals[3][n] * wts[3]) * share;
+                        }
+                        continue;
+                    }
                     let fx = ((ux - x0) % CELL) as f32 / CELL as f32;
                     let row = &rowvals[fi];
                     let (a, b) = (row[gx], row[gx + 1]);
