@@ -252,6 +252,8 @@ pub struct ViewState {
     pub(crate) covered_seen: (usize, crate::hash::HashMap<u16, (bool, u32, (u32, i32, i32, i32))>),
     /// Things found in a room under a roof (see lighting.rs).
     pub(crate) rooms_seen: crate::lighting::RoomsSeen,
+    /// The shadows of walls found out in the pictures before.
+    pub(crate) shade_cache: crate::lighting::ShadeCache,
     /// How far the light of rooms has come in (0 outside, 1 in a house),
     /// and at which tick: it goes over smoothly when the Avatar goes in or out.
     pub(crate) room_light: (f32, u32),
@@ -290,6 +292,7 @@ impl ViewState {
             sky_was: None,
             covered_seen: (usize::MAX, HashMap::default()),
             rooms_seen: (usize::MAX, HashMap::default()),
+            shade_cache: Default::default(),
             room_light: (0.0, 0),
             cam_vel: (0.0, 0.0, 0.0),
             cam_target: None,
@@ -1116,7 +1119,7 @@ impl Game {
         let climbing = self.actors.get(&AVATAR).filter(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
         let climbing = climbing.map(|m| (m.dir, m.anim_start().map_or(avatar.z, |s| s.2)));
         opts.climbing = climbing.and_then(|(dir, from)| Some((self.map().index(AVATAR)?, dir, from)));
-        let Game { data: crate::gamedata::GameData { shapes, infos, pal, .. }, maps, cur_map, turn, view: ViewState { pixel_ids, rooms_seen, .. }, .. } = self;
+        let Game { data: crate::gamedata::GameData { shapes, infos, pal, .. }, maps, cur_map, turn, view: ViewState { pixel_ids, rooms_seen, shade_cache, .. }, .. } = self;
         let map = &maps[cur_map];
 
         // hide roofs (and everything above them) while the Avatar is below one
@@ -1174,7 +1177,7 @@ impl Game {
             let rooms = if angle == 0.0 && sky { crate::lighting::rooms(&self.view.painted, map, *cur_map, infos, rooms_seen) } else { Vec::new() };
             // walls cast shadows (only known for the view as in the original)
             let to_world = |sx: i32, sy: i32, z: i32| xf.to_world(sx, sy, z);
-            let shadows = (angle == 0.0).then(|| crate::lighting::Shadows { sights: crate::lighting::sights(map, infos, lights), to_world: &to_world, anchor: xf.to_screen(0, 0, 0) });
+            let shadows = (angle == 0.0).then(|| crate::lighting::Shadows { sights: crate::lighting::sights(map, infos, lights), to_world: &to_world, anchor: xf.to_screen(0, 0, 0), cache: shade_cache });
             // where each thing painted stands in the picture (for the
             // height of each pixel of it), only with lava or fire about
             let origins: Vec<(i32, i32)> = if angle == 0.0 && lights.iter().any(|l| l.soft) {
