@@ -1089,66 +1089,74 @@ fn in_wall(post: &crate::map::WorldBox, walls: &[crate::map::WorldBox]) -> bool 
 /// The walls around each light (by its place in the list), for
 /// `Shadows`. Lava and fire fields (flat lights) get none.
 pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], lights: &[Light]) -> Vec<Option<Sight>> {
-    lights
-        .iter()
-        .map(|l| {
-            if l.soft {
-                return None;
+    // (the lights spread over the processor cores)
+    let slots: Vec<std::sync::Mutex<Option<Sight>>> = lights.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    crate::pool::each(lights.iter().enumerate().collect(), |_, (k, l): (usize, &Light)| {
+        *slots[k].lock().unwrap() = sight(map, infos, l);
+    });
+    slots.into_iter().map(|s| s.into_inner().unwrap()).collect()
+}
+
+/// The walls about one light (None: none, or a flat light).
+fn sight(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], l: &Light) -> Option<Sight> {
+    if l.soft {
+        return None;
+    }
+    // (a pixel to the side is 4 world units; rounded up to whole
+    // steps: the reach of a flickering light changes a little from
+    // picture to picture, the walls looked at stay the same, and so
+    // do the answers kept in `ShadeCache`)
+    let reach = ((4.0 * l.radius) as i32 + 64 + 63) / 64 * 64;
+    let n = 2 * reach / SIGHT_CELL + 2;
+    // the squares lie fixed in the world (a flickering light changes
+    // its reach from picture to picture: squares laid out from it
+    // moved, and the edges of its shadows with them)
+    let (x0, y0) = ((l.wx - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL, (l.wy - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL);
+    let mut tops = vec![i32::MIN; (n * n) as usize];
+    let mut any = false;
+    let mut around = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+    let near = map.items_near(l.wx, l.wy, reach + 128);
+    let (mut walls, mut posts) = (Vec::new(), Vec::new());
+    for &i in &near {
+        let Some(it) = map.items.get(i) else { continue };
+        let Some(b) = casts_shadow(it, infos, l.z) else { continue };
+        if wall_facing(it, infos).is_some() { walls.push(b) } else { posts.push(b) }
+    }
+    posts.retain(|p| in_wall(p, &walls));
+    for b in walls.iter().chain(&posts) {
+        // the squares whose middle lies in the box (not wider than the wall)
+        let first = |lo: i32| (lo - SIGHT_CELL / 2).div_euclid(SIGHT_CELL) + 1;
+        let last = |hi: i32| (hi - SIGHT_CELL / 2).div_euclid(SIGHT_CELL);
+        let (cx0, cx1) = (first(b.x - b.xd - x0).max(0), last(b.x - x0).min(n - 1));
+        let (cy0, cy1) = (first(b.y - b.yd - y0).max(0), last(b.y - y0).min(n - 1));
+        for cy in cy0..=cy1 {
+            for cx in cx0..=cx1 {
+                around = (around.0.min(x0 + cx * SIGHT_CELL), around.1.min(y0 + cy * SIGHT_CELL), around.2.max(x0 + (cx + 1) * SIGHT_CELL), around.3.max(y0 + (cy + 1) * SIGHT_CELL));
+                let top = &mut tops[(cy * n + cx) as usize];
+                *top = (*top).max(b.z + b.zd);
+                any = true;
             }
-            // (a pixel to the side is 4 world units)
-            let reach = (4.0 * l.radius) as i32 + 64;
-            let n = 2 * reach / SIGHT_CELL + 2;
-            // the squares lie fixed in the world (a flickering light changes
-            // its reach from picture to picture: squares laid out from it
-            // moved, and the edges of its shadows with them)
-            let (x0, y0) = ((l.wx - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL, (l.wy - reach).div_euclid(SIGHT_CELL) * SIGHT_CELL);
-            let mut tops = vec![i32::MIN; (n * n) as usize];
-            let mut any = false;
-            let mut around = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
-            let near = map.items_near(l.wx, l.wy, reach + 128);
-            let (mut walls, mut posts) = (Vec::new(), Vec::new());
-            for &i in &near {
-                let Some(it) = map.items.get(i) else { continue };
-                let Some(b) = casts_shadow(it, infos, l.z) else { continue };
-                if wall_facing(it, infos).is_some() { walls.push(b) } else { posts.push(b) }
+        }
+    }
+    // The start of its lines: a lamp hangs flat on a wall, its middle
+    // close to it. The start is moved away from the wall, to the side
+    // the lamp hangs on, so that lines along the wall do not graze
+    // it (nor slip through it beside the lamp).
+    let wall_at = |x: i32, y: i32| {
+        let (cx, cy) = ((x - x0).div_euclid(SIGHT_CELL), (y - y0).div_euclid(SIGHT_CELL));
+        cx >= 0 && cy >= 0 && cx < n && cy < n && tops[(cy * n + cx) as usize] > l.z
+    };
+    let mut from = (l.wx, l.wy);
+    if let Some(across_x) = l.thin {
+        for d in [-1, 1] {
+            let hit = (8..=24).step_by(8).any(|k| if across_x { wall_at(l.wx + d * k, l.wy) } else { wall_at(l.wx, l.wy + d * k) });
+            if hit {
+                from = if across_x { (l.wx - d * 24, l.wy) } else { (l.wx, l.wy - d * 24) };
+                break;
             }
-            posts.retain(|p| in_wall(p, &walls));
-            for b in walls.iter().chain(&posts) {
-                // the squares whose middle lies in the box (not wider than the wall)
-                let first = |lo: i32| (lo - SIGHT_CELL / 2).div_euclid(SIGHT_CELL) + 1;
-                let last = |hi: i32| (hi - SIGHT_CELL / 2).div_euclid(SIGHT_CELL);
-                let (cx0, cx1) = (first(b.x - b.xd - x0).max(0), last(b.x - x0).min(n - 1));
-                let (cy0, cy1) = (first(b.y - b.yd - y0).max(0), last(b.y - y0).min(n - 1));
-                for cy in cy0..=cy1 {
-                    for cx in cx0..=cx1 {
-                        around = (around.0.min(x0 + cx * SIGHT_CELL), around.1.min(y0 + cy * SIGHT_CELL), around.2.max(x0 + (cx + 1) * SIGHT_CELL), around.3.max(y0 + (cy + 1) * SIGHT_CELL));
-                        let top = &mut tops[(cy * n + cx) as usize];
-                        *top = (*top).max(b.z + b.zd);
-                        any = true;
-                    }
-                }
-            }
-            // The start of its lines: a lamp hangs flat on a wall, its middle
-            // close to it. The start is moved away from the wall, to the side
-            // the lamp hangs on, so that lines along the wall do not graze
-            // it (nor slip through it beside the lamp).
-            let wall_at = |x: i32, y: i32| {
-                let (cx, cy) = ((x - x0).div_euclid(SIGHT_CELL), (y - y0).div_euclid(SIGHT_CELL));
-                cx >= 0 && cy >= 0 && cx < n && cy < n && tops[(cy * n + cx) as usize] > l.z
-            };
-            let mut from = (l.wx, l.wy);
-            if let Some(across_x) = l.thin {
-                for d in [-1, 1] {
-                    let hit = (8..=24).step_by(8).any(|k| if across_x { wall_at(l.wx + d * k, l.wy) } else { wall_at(l.wx, l.wy + d * k) });
-                    if hit {
-                        from = if across_x { (l.wx - d * 24, l.wy) } else { (l.wx, l.wy - d * 24) };
-                        break;
-                    }
-                }
-            }
-            any.then_some(Sight { x0, y0, n, tops, from, walls: around })
-        })
-        .collect()
+        }
+    }
+    any.then_some(Sight { x0, y0, n, tops, from, walls: around })
 }
 
 /// Where a point of the picture lies in the world, for the shadows.
@@ -1171,40 +1179,47 @@ enum Target {
 fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], w: i32, h: i32, (dx, dy): (i32, i32), to_world: &(dyn Fn(i32, i32, i32) -> (i32, i32) + Sync)) -> Vec<Option<Target>> {
     let (tw, th) = ((w + dx) / CELL + 2, (h + dy) / CELL + 2);
     let mut out = vec![None; (tw * th) as usize];
-    for gy in 0..th {
-        for gx in 0..tw {
-            let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
-            if sx < 0 || sy < 0 || sx >= w || sy >= h {
-                continue;
+    // (rows of the grid spread over the processor cores)
+    let cores = crate::pool::cores() as i32;
+    let band = ((th + cores - 1) / cores).max(1);
+    let parts: Vec<_> = out.chunks_mut((band * tw) as usize).enumerate().map(|(b, rows)| (b as i32 * band, rows)).collect();
+    crate::pool::each(parts, |_, (gy0, rows): (i32, &mut [Option<Target>])| {
+        for (r, row) in rows.chunks_mut(tw as usize).enumerate() {
+            let gy = gy0 + r as i32;
+            for gx in 0..tw {
+                let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
+                if sx < 0 || sy < 0 || sx >= w || sy >= h {
+                    continue;
+                }
+                let Some(it) = ids.get((sy * w + sx) as usize).and_then(|&id| id.checked_sub(1)).and_then(|i| items.get(i as usize)) else { continue };
+                let Some(si) = infos.get(it.shape as usize) else { continue };
+                let b = crate::map::WorldBox::of(it, si);
+                // (to_world at height z: x = x0 + 4z and y = y0 + 4z, with
+                // (x0, y0) the point at height 0)
+                row[gx as usize] = Some(match wall_facing(it, infos) {
+                    // the side seen, at the height this pixel shows
+                    Some((1, _)) => {
+                        let (x0, _) = to_world(sx, sy, 0);
+                        let (_, y) = to_world(sx, sy, (it.x - x0) / 4);
+                        Target::Face(it.x, y, it.z, true, it.x)
+                    }
+                    Some(_) => {
+                        let (_, y0) = to_world(sx, sy, 0);
+                        let (x, _) = to_world(sx, sy, (it.y - y0) / 4);
+                        Target::Face(x, it.y, it.z, false, it.y)
+                    }
+                    // a post (many count as ground too: one can stand on them)
+                    None if is_post(it, infos) => Target::Post(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
+                    // a floor or the ground: its top
+                    None if si.land => {
+                        let (x, y) = to_world(sx, sy, it.z + b.zd);
+                        Target::Point(x, y, it.z + b.zd)
+                    }
+                    None => Target::Box(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
+                });
             }
-            let Some(it) = ids.get((sy * w + sx) as usize).and_then(|&id| id.checked_sub(1)).and_then(|i| items.get(i as usize)) else { continue };
-            let Some(si) = infos.get(it.shape as usize) else { continue };
-            let b = crate::map::WorldBox::of(it, si);
-            // (to_world at height z: x = x0 + 4z and y = y0 + 4z, with
-            // (x0, y0) the point at height 0)
-            out[(gy * tw + gx) as usize] = Some(match wall_facing(it, infos) {
-                // the side seen, at the height this pixel shows
-                Some((1, _)) => {
-                    let (x0, _) = to_world(sx, sy, 0);
-                    let (_, y) = to_world(sx, sy, (it.x - x0) / 4);
-                    Target::Face(it.x, y, it.z, true, it.x)
-                }
-                Some(_) => {
-                    let (_, y0) = to_world(sx, sy, 0);
-                    let (x, _) = to_world(sx, sy, (it.y - y0) / 4);
-                    Target::Face(x, it.y, it.z, false, it.y)
-                }
-                // a post (many count as ground too: one can stand on them)
-                None if is_post(it, infos) => Target::Post(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
-                // a floor or the ground: its top
-                None if si.land => {
-                    let (x, y) = to_world(sx, sy, it.z + b.zd);
-                    Target::Point(x, y, it.z + b.zd)
-                }
-                None => Target::Box(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
-            });
         }
-    }
+    });
     out
 }
 
