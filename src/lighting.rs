@@ -822,6 +822,8 @@ impl Sight {
     /// Is a point reached by the light at `from`, with no wall between?
     fn sees(&self, t: Target, from: (i32, i32)) -> bool {
         let (lx, ly) = from;
+        // (the last 12 units before a wall or thing are its own: its foot)
+        let end = if matches!(t, Target::Point(..)) { 0.0 } else { 12.0 };
         let (tx, ty, tz) = match t {
             Target::Point(x, y, z) => (x, y, z),
             // of a wall only the side seen is lit, by lights on that side
@@ -833,17 +835,26 @@ impl Sight {
             }
             // another thing: its side towards the light
             Target::Box(x0, y0, x1, y1, z) => (lx.clamp(x0, x1), ly.clamp(y0, y1), z),
+            // a post: as a wall, only its sides seen (+x, +y) are lit, by
+            // lights in front of them (not from inside a house through the
+            // corner of its walls)
+            Target::Post(x0, y0, x1, y1, z) => {
+                if lx < x1 && ly < y1 {
+                    return false;
+                }
+                (lx.clamp(x0, x1), ly.clamp(y0, y1), z)
+            }
         };
         // The squares the line from the light to the point crosses, one
         // after the other (each once); the first 24 units are the light's
-        // own (the wall or pillar a lamp hangs on), the last 12 the point's
-        // (the foot of the wall it is on).
+        // own (the wall or pillar a lamp hangs on), the last `end` the
+        // point's.
         let (dx, dy) = ((tx - lx) as f32, (ty - ly) as f32);
         let len = (dx * dx + dy * dy).sqrt();
-        if len <= 36.0 {
+        if len <= 24.0 + end {
             return true;
         }
-        let (t0, t1) = (24.0 / len, (len - 12.0) / len);
+        let (t0, t1) = (24.0 / len, (len - end) / len);
         let cell = SIGHT_CELL as f32;
         let (fx, fy) = ((lx - self.x0) as f32 / cell, (ly - self.y0) as f32 / cell);
         let (mut cx, mut cy) = (fx.floor() as i32, fy.floor() as i32);
@@ -952,6 +963,8 @@ enum Target {
     Face(i32, i32, i32, bool, i32),
     /// On another thing: its box (x0, y0, x1, y1) and the height of its foot.
     Box(i32, i32, i32, i32, i32),
+    /// On a post (or the corner stone of walls): as `Box`.
+    Post(i32, i32, i32, i32, i32),
 }
 
 /// For every point of the grid (CELL pixels apart, with one more row and
@@ -983,6 +996,8 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
                     let (x, _) = to_world(sx, sy, (it.y - y0) / 4);
                     Target::Face(x, it.y, it.z, false, it.y)
                 }
+                // a post (many count as ground too: one can stand on them)
+                None if is_post(it, infos) => Target::Post(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
                 // a floor or the ground: its top
                 None if si.land => {
                     let (x, y) = to_world(sx, sy, it.z + b.zd);
