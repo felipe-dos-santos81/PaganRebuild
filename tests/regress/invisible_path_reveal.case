@@ -6,4 +6,6 @@ args: --map 47 --pos 15563,5955,48
 do: vitals:5000;t5;pack:798,3;dropat:798/3:326,250;t40;pathshown;hop:15551,6175,48;t60;where:1
 expect: (15615, 5983, 48)
 expect: (15615, 6239, 48)
-expect: where 1: 15580,6204,48
+# (lands 4 units from where it did before 3e3fb1f: the pointer is placed
+# a pixel higher since the view rounds as it draws; still on the tile)
+expect: where 1: 15576,6200,48
