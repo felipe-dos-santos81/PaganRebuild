@@ -3,4 +3,6 @@
 # fall instead of stopping at its first frame)
 args: --map 43 --pos 15819,16699,16
 do: t60;hit:62,200,1;t150;where:62
-expect: where 62: 15663,16175,16 shape 357 frame 73
+# (only its height and last frame: where it stands when hit depends on
+# the way it took to the Avatar, which changes with how creatures walk)
+expect: ,16 shape 357 frame 73
