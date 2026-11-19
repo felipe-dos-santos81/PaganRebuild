@@ -504,7 +504,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     let moved: Vec<Light> = lights.iter().map(|l| Light { x: l.x + dx as f32, y: l.y + dy as f32, ..*l }).collect();
     // what each point of the grid shows, in the world (for the shadows of walls)
     let targets = match &shadows {
-        Some(sh) if !ids.is_empty() => targets(ids, items, infos, w, h, (dx, dy), sh.to_world),
+        Some(sh) if !ids.is_empty() => targets(ids, items, infos, w, h, (dx, dy), sh.to_world, &in_reach(&moved, &sh.sights, w, h, (dx, dy))),
         _ => Vec::new(),
     };
     let (tw, th) = ((w + dx) / CELL + 2, (h + dy) / CELL + 2);
@@ -522,13 +522,22 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     // grid points of which some lie on another thing (a door lit, the floor
     // behind it not): mixed across, a seam of light showed around the door
     // and along the walls. There each pixel takes only the grid points on
-    // the thing it shows. `edge`: grid points in the shadow of some light;
-    // `on`: the thing (id + 1) seen at each grid point.
-    let edge = shadow_points(&lit, tw, th);
+    // the thing it shows. `edge`: the squares of the grid with a corner in
+    // the shadow of some light and not all corners on one thing (else the
+    // usual mixing gives the same); `on`: the thing (id + 1) seen at each
+    // grid point.
+    let mut edge = shadow_squares(&lit, tw, th);
     let on = |gx: i32, gy: i32| -> u32 {
         let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
         if sx < 0 || sy < 0 || sx >= w || sy >= h { 0 } else { ids.get((sy * w + sx) as usize).copied().unwrap_or(0) }
     };
+    for (k, e) in edge.iter_mut().enumerate() {
+        let (gx, gy) = (k as i32 % tw, k as i32 / tw);
+        if *e {
+            let first = on(gx, gy);
+            *e = on(gx + 1, gy) != first || on(gx, gy + 1) != first || on(gx + 1, gy + 1) != first;
+        }
+    }
     let shade = |n: usize, gx: i32, gy: i32| -> f32 {
         match lit.get(n) {
             Some(Some(v)) => v.at(gx, gy),
@@ -608,7 +617,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 // points around the pixel, only those on the same thing
                 let (cgx, cgy) = (ux / CELL, uy / CELL);
                 let corners = [(cgx, cgy), (cgx + 1, cgy), (cgx, cgy + 1), (cgx + 1, cgy + 1)];
-                let near_edge = !edge.is_empty() && corners.iter().any(|&(gx, gy)| gx < tw && gy < th && edge[(gy * tw + gx) as usize]);
+                let near_edge = edge.get((cgy * tw + cgx) as usize) == Some(&true);
                 let own: Option<[f32; 4]> = near_edge.then(|| {
                     let (fx, fy) = ((ux % CELL) as f32 / CELL as f32, (uy % CELL) as f32 / CELL as f32);
                     let mut wts = [(1.0 - fx) * (1.0 - fy), fx * (1.0 - fy), (1.0 - fx) * fy, fx * fy];
@@ -969,8 +978,8 @@ pub struct ShadeCache {
 struct CachedLight {
     from: (i32, i32),
     z: i32,
-    /// The walls about it, as they were (`Sight::tops`).
-    tops: Vec<i32>,
+    /// The walls about it, as they were (`Sight::key`).
+    key: SightKey,
     /// The part of the grid (in grid points of the world): first point, size.
     x0: i32,
     y0: i32,
@@ -999,19 +1008,28 @@ impl Lit {
     }
 }
 
-/// The grid points (of `tw` x `th`) in the shadow of some light (empty
-/// without shadows).
-fn shadow_points(lit: &[Option<Lit>], tw: i32, th: i32) -> Vec<bool> {
-    let mut edge = vec![false; if lit.is_empty() { 0 } else { (tw * th) as usize }];
+/// The squares of the grid (of `tw` x `th` points; a square by its top
+/// left point) with a corner in the shadow of some light (empty without
+/// shadows). Worked out once here, not for every pixel.
+fn shadow_squares(lit: &[Option<Lit>], tw: i32, th: i32) -> Vec<bool> {
+    if lit.is_empty() {
+        return Vec::new();
+    }
+    let mut squares = vec![false; (tw * th) as usize];
     for v in lit.iter().flatten() {
         for (k, &reached) in v.v.iter().enumerate() {
             if reached == 0 {
+                // the four squares this point is a corner of
                 let (gx, gy) = (v.gx0 + k as i32 % v.w, v.gy0 + k as i32 / v.w);
-                edge[(gy * tw + gx) as usize] = true;
+                for (x, y) in [(gx, gy), (gx - 1, gy), (gx, gy - 1), (gx - 1, gy - 1)] {
+                    if x >= 0 && y >= 0 {
+                        squares[(y * tw + x) as usize] = true;
+                    }
+                }
             }
         }
     }
-    edge
+    squares
 }
 
 /// For each light with walls about it: the grid points within its reach
@@ -1031,30 +1049,54 @@ fn lit_points(lights: &[Light], sights: Vec<Option<Sight>>, targets: &[Option<Ta
                 return None;
             }
             // the answers kept for this light, if it and its walls are as they were
-            let i = old.iter().position(|c| c.from == sight.from && c.z == l.z && c.tops == sight.tops);
+            let i = old.iter().position(|c| c.from == sight.from && c.z == l.z && c.key == sight.key);
             let kept = i.map(|i| old.swap_remove(i));
             Some((sight, (gx0, gy0, gx1, gy1), kept, l.z))
         })
         .collect();
-    let done = crate::pool::map(jobs, |job| {
-        let (sight, (gx0, gy0, gx1, gy1), kept, z) = job?;
+    // the answers kept for each light (or a new part of the grid for them)
+    let mut sights = Vec::new();
+    let mut parts = Vec::new();
+    for (n, job) in jobs.into_iter().enumerate() {
+        let Some((sight, (gx0, gy0, gx1, gy1), kept, z)) = job else { continue };
         let (w, h) = (gx1 - gx0 + 1, gy1 - gy0 + 1);
         // the part of the world's grid kept: this reach and some room
         // around it (the reach of a flickering light changes a little)
         let (wx0, wy0, wx1, wy1) = (gx0 + ox, gy0 + oy, gx1 + ox, gy1 + oy);
-        let mut c = match kept {
+        let c = match kept {
             Some(c) if wx0 >= c.x0 && wy0 >= c.y0 && wx1 < c.x0 + c.w && wy1 < c.y0 + c.h => c,
             _ => {
                 const ROOM: i32 = 8;
                 let (cw, ch) = (w + 2 * ROOM, h + 2 * ROOM);
-                CachedLight { from: sight.from, z, tops: sight.tops.clone(), x0: wx0 - ROOM, y0: wy0 - ROOM, w: cw, h: ch, points: vec![None; (cw * ch) as usize] }
+                CachedLight { from: sight.from, z, key: sight.key.clone(), x0: wx0 - ROOM, y0: wy0 - ROOM, w: cw, h: ch, points: vec![None; (cw * ch) as usize] }
             }
         };
-        let mut v = vec![1u8; (w * h) as usize];
-        for gy in gy0..=gy1 {
-            for gx in gx0..=gx1 {
-                let Some(Some(t)) = targets.get((gy * tw + gx) as usize).copied() else { continue };
-                let slot = &mut c.points[((gy + oy - c.y0) * c.w + gx + ox - c.x0) as usize];
+        sights.push(sight);
+        parts.push((n, c, Lit { gx0, gy0, w, h, v: vec![1u8; (w * h) as usize] }));
+    }
+    // Row by row over the processor cores (by light, the one with the
+    // widest reach kept one core busy while the others waited): each row
+    // of a light with its row of the answers kept.
+    let mut rows = Vec::new();
+    for (k, (_, c, lit)) in parts.iter_mut().enumerate() {
+        let first = (lit.gy0 + oy - c.y0) as usize;
+        let left = (lit.gx0 + ox - c.x0) as usize;
+        let kept_rows = c.points.chunks_mut(c.w as usize).skip(first);
+        for (r, (row, kept)) in lit.v.chunks_mut(lit.w as usize).zip(kept_rows).enumerate() {
+            rows.push((k, lit.gy0 + r as i32, lit.gx0, row, &mut kept[left..left + lit.w as usize]));
+        }
+    }
+    let band = (rows.len() / (4 * crate::pool::cores())).max(1);
+    let mut bands = Vec::new();
+    while !rows.is_empty() {
+        let rest = rows.split_off(band.min(rows.len()));
+        bands.push(std::mem::replace(&mut rows, rest));
+    }
+    crate::pool::each(bands, |_, band| {
+        for (k, gy, gx0, row, kept) in band {
+            let sight = &sights[k];
+            for (i, (lit, slot)) in row.iter_mut().zip(kept.iter_mut()).enumerate() {
+                let Some(Some(t)) = targets.get((gy * tw + gx0 + i as i32) as usize).copied() else { continue };
                 let reached = match *slot {
                     Some((was, r)) if was == t => r,
                     _ => {
@@ -1064,19 +1106,26 @@ fn lit_points(lights: &[Light], sights: Vec<Option<Sight>>, targets: &[Option<Ta
                     }
                 };
                 if !reached {
-                    v[((gy - gy0) * w + gx - gx0) as usize] = 0;
+                    *lit = 0;
                 }
             }
         }
-        Some((Lit { gx0, gy0, w, h, v }, c))
     });
-    done.into_iter()
-        .map(|d| {
-            let (lit, c) = d?;
-            cache.lights.push(c);
-            Some(lit)
-        })
-        .collect()
+    let mut out: Vec<Option<Lit>> = (0..lights.len()).map(|_| None).collect();
+    for (n, c, lit) in parts {
+        cache.lights.push(c);
+        out[n] = Some(lit);
+    }
+    out
+}
+
+/// The squares of a `Sight` (x0, y0, n) and the boxes of the walls laid
+/// into them: the same key, the same `tops` (a few dozen numbers to
+/// compare instead of the thousands of squares).
+#[derive(Clone, PartialEq)]
+struct SightKey {
+    squares: (i32, i32, i32),
+    walls: Vec<(i32, i32, i32, i32, i32, i32)>,
 }
 
 /// Size of a square of `Sight`, in world units (a wall is 32 thick).
@@ -1092,6 +1141,8 @@ pub struct Sight {
     y0: i32,
     n: i32,
     tops: Vec<i32>,
+    /// What `tops` was made from (to know it again, see `ShadeCache`).
+    key: SightKey,
     /// Where the light's lines start (see `sights`).
     from: (i32, i32),
     /// The world box around all walls (x0, y0, x1, y1): a line that stays
@@ -1227,7 +1278,9 @@ fn sight(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], l: &Light
         if wall_facing(it, infos).is_some() { walls.push(b) } else { posts.push(b) }
     }
     posts.retain(|p| in_wall(p, &walls));
+    let mut key = SightKey { squares: (x0, y0, n), walls: Vec::with_capacity(walls.len() + posts.len()) };
     for b in walls.iter().chain(&posts) {
+        key.walls.push((b.x, b.y, b.z, b.xd, b.yd, b.zd));
         // the squares whose middle lies in the box (not wider than the wall)
         let first = |lo: i32| (lo - SIGHT_CELL / 2).div_euclid(SIGHT_CELL) + 1;
         let last = |hi: i32| (hi - SIGHT_CELL / 2).div_euclid(SIGHT_CELL);
@@ -1260,7 +1313,7 @@ fn sight(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], l: &Light
             }
         }
     }
-    any.then_some(Sight { x0, y0, n, tops, from, walls: around })
+    any.then_some(Sight { x0, y0, n, tops, key, from, walls: around })
 }
 
 /// Where a point of the picture lies in the world, for the shadows.
@@ -1277,10 +1330,28 @@ enum Target {
     Post(i32, i32, i32, i32, i32),
 }
 
-/// For every point of the grid (CELL pixels apart, with one more row and
-/// column; pixel x is at x + dx in the grid), what the picture shows
-/// there, in the world.
-fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], w: i32, h: i32, (dx, dy): (i32, i32), to_world: &(dyn Fn(i32, i32, i32) -> (i32, i32) + Sync)) -> Vec<Option<Target>> {
+/// The points of the grid (as `targets`) within reach of a light with
+/// walls about it: only there it matters what is seen.
+fn in_reach(lights: &[Light], sights: &[Option<Sight>], w: i32, h: i32, (dx, dy): (i32, i32)) -> Vec<bool> {
+    let (tw, th) = ((w + dx) / CELL + 2, (h + dy) / CELL + 2);
+    let mut wanted = vec![false; (tw * th) as usize];
+    for (l, _) in lights.iter().zip(sights).filter(|(_, s)| s.is_some()) {
+        let (gx0, gx1, gy0, gy1) = l.grid_reach();
+        let (gx0, gx1) = (gx0.max(0), gx1.min(tw - 1));
+        for gy in gy0.max(0)..=gy1.min(th - 1) {
+            if gx0 <= gx1 {
+                wanted[(gy * tw + gx0) as usize..=(gy * tw + gx1) as usize].fill(true);
+            }
+        }
+    }
+    wanted
+}
+
+/// For the points of the grid `wanted` (CELL pixels apart, with one more
+/// row and column; pixel x is at x + dx in the grid), what the picture
+/// shows there, in the world.
+#[allow(clippy::too_many_arguments)]
+fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], w: i32, h: i32, (dx, dy): (i32, i32), to_world: &(dyn Fn(i32, i32, i32) -> (i32, i32) + Sync), wanted: &[bool]) -> Vec<Option<Target>> {
     let (tw, th) = ((w + dx) / CELL + 2, (h + dy) / CELL + 2);
     let mut out = vec![None; (tw * th) as usize];
     // (rows of the grid spread over the processor cores)
@@ -1291,7 +1362,7 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
             let gy = gy0 + r as i32;
             for gx in 0..tw {
                 let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
-                if sx < 0 || sy < 0 || sx >= w || sy >= h {
+                if sx < 0 || sy < 0 || sx >= w || sy >= h || !wanted[(gy * tw + gx) as usize] {
                     continue;
                 }
                 let Some(it) = ids.get((sy * w + sx) as usize).and_then(|&id| id.checked_sub(1)).and_then(|i| items.get(i as usize)) else { continue };
@@ -1325,5 +1396,3 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
     });
     out
 }
-
-
