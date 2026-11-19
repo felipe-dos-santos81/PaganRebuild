@@ -129,9 +129,28 @@ pub fn each<T: Send>(items: Vec<T>, f: impl Fn(usize, T) + Sync) {
     });
 }
 
+/// `f` of each of `items`, spread over the cores, in their order.
+pub fn map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync) -> Vec<R> {
+    let out: Vec<Mutex<Option<R>>> = items.iter().map(|_| Mutex::new(None)).collect();
+    each(items, |i, t| *out[i].lock().unwrap() = Some(f(t)));
+    out.into_iter().map(|r| r.into_inner().unwrap().expect("every item done")).collect()
+}
+
+/// How many rows each core gets when `rows` rows are spread over them.
+pub fn band(rows: i32) -> i32 {
+    let cores = cores() as i32;
+    ((rows + cores - 1) / cores).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_keeps_the_order() {
+        let v: Vec<u32> = (0..100).collect();
+        assert_eq!(map(v.clone(), |x| x * 2), v.iter().map(|x| x * 2).collect::<Vec<_>>());
+    }
 
     #[test]
     fn every_part_once() {

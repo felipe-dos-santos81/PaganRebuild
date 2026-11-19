@@ -1167,13 +1167,12 @@ impl Game {
             crate::shadows::apply(surf, pixel_ids, &self.view.painted, map, infos, shapes, crate::shadows::Sun::at(hour));
         }
         if let Some(lights) = &lights {
-            // what gives the light keeps its own colours (lava would turn a flat yellow)
-            // and how high things stand (only known for the view as in the original)
-            // (what is at each pixel is only known for the view as in the original)
+            // what is at each pixel (only known for the view as in the
+            // original): what gives the light keeps its own colours, how
+            // high things stand
             let ids: &[u32] = if angle == 0.0 { pixel_ids } else { &[] };
-            // the things in the rooms of the house the Avatar is in
-            // what is inside a house and what outside (lights do not
-            // shine from one to the other), only under the open sky
+            // what is in a room under a roof (for the general light of the
+            // rooms), only under the open sky
             let rooms = if angle == 0.0 && sky { crate::lighting::rooms(&self.view.painted, map, *cur_map, infos, rooms_seen) } else { Vec::new() };
             // walls cast shadows (only known for the view as in the original)
             let to_world = |sx: i32, sy: i32, z: i32| xf.to_world(sx, sy, z);

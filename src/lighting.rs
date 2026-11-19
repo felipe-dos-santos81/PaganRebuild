@@ -157,6 +157,16 @@ pub struct Light {
     pub soft: bool,
 }
 
+impl Light {
+    /// The points of the grid within its reach (first and last in x, in y;
+    /// not cut to the picture).
+    fn grid_reach(&self) -> (i32, i32, i32, i32) {
+        let half = self.radius / 2.0;
+        let cell = CELL as f32;
+        (((self.x - self.radius) / cell).floor() as i32, ((self.x + self.radius) / cell).ceil() as i32, ((self.y - half) / cell).floor() as i32, ((self.y + half) / cell).ceil() as i32)
+    }
+}
+
 /// A flame bolt (and the fireball 260): a hot core, yellow-white (`core`),
 /// in a deep orange glow that ends in red, not a wide even shine.
 const BOLT_EDGE: [f32; 3] = [1.15, 0.38, 0.1];
@@ -394,7 +404,7 @@ impl Field {
 /// The lights grouped by height, each group added up in its grid.
 /// `shade`: does a light (by its place in the list) reach a grid point
 /// (1), or is a wall in the way (0)?
-fn fields(lights: &[Light], lamp: f32, w: i32, h: i32, shade: &(dyn Fn(usize, i32, i32) -> f32 + Sync)) -> Vec<Field> {
+fn fields(lights: &[Light], w: i32, h: i32, shade: &(dyn Fn(usize, i32, i32) -> f32 + Sync)) -> Vec<Field> {
     let mut groups: Vec<(i32, i32, bool, Vec<(usize, &Light)>)> = Vec::new();
     for (n, l) in lights.iter().enumerate() {
         match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.soft) {
@@ -421,17 +431,13 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32, shade: &(dyn Fn(usize, i3
             }
             let mut values = vec![[0.0f32; 3]; (gw * gh) as usize];
             // rows of the grid spread over the processor cores
-            let cores = crate::pool::cores() as i32;
-            let band = ((gh + cores - 1) / cores).max(1);
+            let band = crate::pool::band(gh);
             let parts: Vec<_> = values.chunks_mut((band * gw) as usize).enumerate().map(|(b, v)| (b as i32 * band, v)).collect();
             crate::pool::each(parts, |_, (r0, v)| {
                 let rows = v.len() as i32 / gw;
                 for &(n, l) in &ls {
-                    let half = l.radius / 2.0;
                     let rr = l.radius * l.radius;
-                    // the grid points within reach of the light
-                    let (px0, px1) = (((l.x - l.radius) / CELL as f32).floor() as i32, ((l.x + l.radius) / CELL as f32).ceil() as i32);
-                    let (py0, py1) = (((l.y - half) / CELL as f32).floor() as i32, ((l.y + half) / CELL as f32).ceil() as i32);
+                    let (px0, px1, py0, py1) = l.grid_reach();
                     for gy in py0.max(gy0 + r0)..=py1.min(gy0 + r0 + rows - 1) {
                         let dy = 2.0 * ((gy * CELL) as f32 - l.y);
                         let row = ((gy - gy0 - r0) * gw) as usize;
@@ -443,8 +449,7 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32, shade: &(dyn Fn(usize, i3
                             }
                             // soft towards the edge (flat lights longer and
                             // more gently, see `SOFT_REACH`)
-                            let f = if soft { (1.0 - d2).powi(SOFT_FALLOFF) } else { (1.0 - d2) * (1.0 - 0.4 * d2) } * lamp;
-                            let f = f * shade(n, gx, gy);
+                            let f = if soft { (1.0 - d2).powi(SOFT_FALLOFF) } else { (1.0 - d2) * (1.0 - 0.4 * d2) } * shade(n, gx, gy);
                             if f <= 0.0 {
                                 continue;
                             }
@@ -481,11 +486,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     // the dark keeps dark colours a little lighter than bright ones
     // (multiplying all alike made dark floors and carpets black): the
     // factor per colour for every brightness of a pixel, worked out once
-    let dims = |look: Look| -> [[f32; 256]; 3] {
-        std::array::from_fn(|c| {
-            std::array::from_fn(|y| look.ambient[c].powf(0.6 + 0.4 * y as f32 / 255.0))
-        })
-    };
+    let dims = |look: Look| -> [[f32; 256]; 3] { std::array::from_fn(|c| std::array::from_fn(|luma| dim_factor(look.ambient[c], luma))) };
     let (dim_out, lamp_out) = (dims(look), look.lamp);
     let (dim_in, lamp_in) = match inner {
         Some(inner) => (dims(inner), inner.lamp),
@@ -523,15 +524,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     // and along the walls. There each pixel takes only the grid points on
     // the thing it shows. `edge`: grid points in the shadow of some light;
     // `on`: the thing (id + 1) seen at each grid point.
-    let mut edge = vec![false; if lit.is_empty() { 0 } else { (tw * th) as usize }];
-    for v in lit.iter().flatten() {
-        for (k, &reached) in v.v.iter().enumerate() {
-            if reached == 0 {
-                let (gx, gy) = (v.gx0 + k as i32 % v.w, v.gy0 + k as i32 / v.w);
-                edge[(gy * tw + gx) as usize] = true;
-            }
-        }
-    }
+    let edge = shadow_points(&lit, tw, th);
     let on = |gx: i32, gy: i32| -> u32 {
         let (sx, sy) = (gx * CELL - dx, gy * CELL - dy);
         if sx < 0 || sy < 0 || sx >= w || sy >= h { 0 } else { ids.get((sy * w + sx) as usize).copied().unwrap_or(0) }
@@ -542,11 +535,10 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             _ => 1.0,
         }
     };
-    let fields = fields(&moved, 1.0, w + dx, h + dy, &shade);
+    let fields = fields(&moved, w + dx, h + dy, &shade);
     let spans: Vec<_> = fields.iter().map(Field::pixels).collect();
     // in bands of rows, one per processor core
-    let cores = crate::pool::cores() as i32;
-    let band = ((h + cores - 1) / cores).max(1);
+    let band = crate::pool::band(h);
     let parts: Vec<_> = surf
         .pixels
         .chunks_mut((band * w) as usize)
@@ -557,18 +549,6 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             (b as i32 * band, pixels, ids)
         })
         .collect();
-    // what is known of the thing seen at a pixel, worked out once for
-    // each run of pixels showing the same thing
-    struct Seen<'a> {
-        id: u32,
-        own_light: bool,
-        dim: &'a [[f32; 256]; 3],
-        unlit: &'a [u8],
-        lamp: f32,
-        height: Option<(i32, i32)>,
-        roof: bool,
-        origin: Option<(i32, i32)>,
-    }
     let seen_of = |id: u32| -> Seen {
         let index = id.checked_sub(1).map(|i| i as usize);
         let thing = index.and_then(|i| items.get(i));
@@ -620,16 +600,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 if seen.own_light {
                     continue;
                 }
-                // How high this pixel is in the world: a tall thing (a wall of
-                // rock) rises from its foot, and a pixel higher up in the
-                // picture than the foot below it is that much higher. Its front
-                // corner at the foot is at (sx0, sy0); the foot runs back from
-                // there half a pixel up for every pixel to the side. Flat things
-                // lie at their foot all over.
-                let pixel_z = seen.height.map(|(foot, top)| match seen.origin {
-                    Some((sx0, sy0)) => foot + (sy0 - (x - sx0).abs() / 2 - y).clamp(0, top - foot),
-                    None => foot,
-                });
+                let pixel_z = seen.z_at(x, y);
                 let mut l = [0.0f32; 3];
                 // (where the pixel is in the grid)
                 let ux = x + dx;
@@ -653,29 +624,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                     if ux < x0 || ux >= x1 {
                         continue;
                     }
-                    // not on what stands above the light or lies far below it
-                    // and a roof only from a light as high as it (the slopes of
-                    // a roof come down lower than a candle in the house stands)
-                    let mut share = 1.0;
-                    if let Some((foot, top)) = seen.height {
-                        if top < f.z - BELOW || (seen.roof && foot >= f.z) {
-                            continue;
-                        }
-                        if f.soft {
-                            // (a flat light fades with the height above its
-                            // ground, which lies `FLAT_REACH` below its top;
-                            // the height of this very pixel: a tall rock is lit
-                            // at its foot and less higher up, and the pieces of
-                            // a wall of rock side by side meet without a seam)
-                            let above = pixel_z.unwrap_or(foot) - (f.top - FLAT_REACH) - SOFT_FULL;
-                            if above >= SOFT_FADE {
-                                continue;
-                            }
-                            share = (1.0 - above.max(0) as f32 / SOFT_FADE as f32).min(1.0);
-                        } else if foot >= f.top {
-                            continue;
-                        }
-                    }
+                    let Some(share) = seen.share(f, pixel_z) else { continue };
                     // between the four grid points around the pixel
                     let gx = ((ux - x0) / CELL) as usize;
                     if let Some(wts) = own {
@@ -718,6 +667,68 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
     });
 }
 
+/// How much the general light `ambient` (of one colour) keeps of a pixel
+/// of brightness `luma` (0..255): dark colours a little more than bright
+/// ones.
+fn dim_factor(ambient: f32, luma: usize) -> f32 {
+    ambient.powf(0.6 + 0.4 * luma as f32 / 255.0)
+}
+
+/// What is known of the thing seen at a pixel (in `apply`), worked out
+/// once for each run of pixels showing the same thing.
+struct Seen<'a> {
+    /// Item number + 1 (0: nothing).
+    id: u32,
+    /// It gives light: it keeps its own colours.
+    own_light: bool,
+    /// The general light on it (by colour and brightness), the colours
+    /// where no light reaches (`unlit_table`), the strength of the lights.
+    dim: &'a [[f32; 256]; 3],
+    unlit: &'a [u8],
+    lamp: f32,
+    /// The height of its foot and top.
+    height: Option<(i32, i32)>,
+    roof: bool,
+    /// Where its front corner at the foot is in the picture.
+    origin: Option<(i32, i32)>,
+}
+
+impl Seen<'_> {
+    /// How high the pixel (x, y) of it is in the world: a tall thing (a wall
+    /// of rock) rises from its foot, and a pixel higher up in the picture
+    /// than the foot below it is that much higher. Its front corner at the
+    /// foot is at `origin`; the foot runs back from there half a pixel up
+    /// for every pixel to the side. Flat things lie at their foot all over.
+    fn z_at(&self, x: i32, y: i32) -> Option<i32> {
+        self.height.map(|(foot, top)| match self.origin {
+            Some((sx0, sy0)) => foot + (sy0 - (x - sx0).abs() / 2 - y).clamp(0, top - foot),
+            None => foot,
+        })
+    }
+
+    /// How much of the light of field `f` falls on a pixel of it at height
+    /// `pixel_z`, None: none. Not on what stands above the light or lies
+    /// far below it, and on a roof only from a light as high as it (the
+    /// slopes of a roof come down lower than a candle in the house stands).
+    fn share(&self, f: &Field, pixel_z: Option<i32>) -> Option<f32> {
+        let Some((foot, top)) = self.height else { return Some(1.0) };
+        if top < f.z - BELOW || (self.roof && foot >= f.z) {
+            return None;
+        }
+        if f.soft {
+            // (a flat light fades with the height above its ground, which
+            // lies `FLAT_REACH` below its top; the height of this very
+            // pixel: a tall rock is lit at its foot and less higher up, and
+            // the pieces of a wall of rock side by side meet without a seam)
+            let above = pixel_z.unwrap_or(foot) - (f.top - FLAT_REACH) - SOFT_FULL;
+            if above >= SOFT_FADE {
+                return None;
+            }
+            return Some((1.0 - above.max(0) as f32 / SOFT_FADE as f32).min(1.0));
+        }
+        (foot < f.top).then_some(1.0)
+    }
+}
 
 /// For pixels no light reaches: per brightness of the pixel (luma) and
 /// colour, the value each original value becomes in this general light
@@ -733,7 +744,7 @@ fn unlit_table(look: Look) -> std::sync::Arc<Vec<u8>> {
     let mut t = vec![0u8; 256 * 768];
     for luma in 0..256 {
         for c in 0..3 {
-            let k = look.ambient[c].powf(0.6 + 0.4 * luma as f32 / 255.0).min(MOST);
+            let k = dim_factor(look.ambient[c], luma).min(MOST);
             for v in 0..256 {
                 t[luma * 768 + c * 256 + v] = ((v as f32 * k) as u32).min(255) as u8;
             }
@@ -848,13 +859,17 @@ fn walled(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &cra
     } else {
         crate::map::WorldBox { x: b.x - 4, y: b.y + 8, z: it.z + 8, xd: (b.xd - 8).max(1), yd: 8, zd: 24 }
     };
-    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
     probes.set(probes.get() + 1);
-    let pi = map.position_info(&probe, &nowhere, infos, it.id);
-    !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos))
+    blocked_by_wall(map, infos, &map.position_info(&probe, &NOWHERE, infos, it.id))
 }
 
+/// A start for `position_info` that nothing overlaps.
+const NOWHERE: crate::map::WorldBox = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
 
+/// Was a box looked at blocked by a wall or post?
+fn blocked_by_wall(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], pi: &crate::map::PositionInfo) -> bool {
+    !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos))
+}
 
 /// A wall (solid, tall, thin in x or y and long in the other; not a post):
 /// of it only the side towards the viewer is seen, the one facing +x or
@@ -889,8 +904,6 @@ fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
     let b = crate::map::WorldBox::of(it, si);
     // the middle of the wall's foot, moved out to just in front of it
     let (mx, my) = (b.x - b.xd / 2 + dx * (b.xd / 2 + 64), b.y - b.yd / 2 + dy * (b.yd / 2 + 64));
-    // a start nothing overlaps
-    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
     // how far to the next wall, None: out under the open sky
     let closed = |(wx, wy): (i32, i32)| -> Option<i32> {
         // open sky a few steps in a row (not just a chimney above)
@@ -901,7 +914,7 @@ fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
             let (hx, hy) = if wx != 0 { (16, 48) } else { (48, 16) };
             let probe = crate::map::WorldBox { x: cx + hx, y: cy + hy, z: it.z + 8, xd: 2 * hx, yd: 2 * hy, zd: 24 };
             probes.set(probes.get() + 1);
-            let pi = map.position_info(&probe, &nowhere, infos, it.id);
+            let pi = map.position_info(&probe, &NOWHERE, infos, it.id);
             if pi.roof_z.is_none() {
                 open += 1;
                 if open >= 5 {
@@ -910,7 +923,7 @@ fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: 
             } else {
                 open = 0;
             }
-            if k >= 2 && !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos)) {
+            if k >= 2 && blocked_by_wall(map, infos, &pi) {
                 return Some(k * STEP);
             }
         }
@@ -986,6 +999,21 @@ impl Lit {
     }
 }
 
+/// The grid points (of `tw` x `th`) in the shadow of some light (empty
+/// without shadows).
+fn shadow_points(lit: &[Option<Lit>], tw: i32, th: i32) -> Vec<bool> {
+    let mut edge = vec![false; if lit.is_empty() { 0 } else { (tw * th) as usize }];
+    for v in lit.iter().flatten() {
+        for (k, &reached) in v.v.iter().enumerate() {
+            if reached == 0 {
+                let (gx, gy) = (v.gx0 + k as i32 % v.w, v.gy0 + k as i32 / v.w);
+                edge[(gy * tw + gx) as usize] = true;
+            }
+        }
+    }
+    edge
+}
+
 /// For each light with walls about it: the grid points within its reach
 /// that it lights. The answers of the pictures before are used again
 /// where nothing changed.
@@ -997,11 +1025,8 @@ fn lit_points(lights: &[Light], sights: Vec<Option<Sight>>, targets: &[Option<Ta
         .map(|(l, sight)| {
             let sight = sight?;
             // the grid points within reach (as `fields` goes over them)
-            let half = l.radius / 2.0;
-            let gx0 = (((l.x - l.radius) / CELL as f32).floor() as i32).max(0);
-            let gx1 = (((l.x + l.radius) / CELL as f32).ceil() as i32).min(tw - 1);
-            let gy0 = (((l.y - half) / CELL as f32).floor() as i32).max(0);
-            let gy1 = (((l.y + half) / CELL as f32).ceil() as i32).min(th - 1);
+            let (gx0, gx1, gy0, gy1) = l.grid_reach();
+            let (gx0, gx1, gy0, gy1) = (gx0.max(0), gx1.min(tw - 1), gy0.max(0), gy1.min(th - 1));
             if gx1 < gx0 || gy1 < gy0 {
                 return None;
             }
@@ -1011,10 +1036,8 @@ fn lit_points(lights: &[Light], sights: Vec<Option<Sight>>, targets: &[Option<Ta
             Some((sight, (gx0, gy0, gx1, gy1), kept, l.z))
         })
         .collect();
-    let slots: Vec<std::sync::Mutex<Option<(Lit, CachedLight)>>> = jobs.iter().map(|_| std::sync::Mutex::new(None)).collect();
-    let work: Vec<_> = jobs.into_iter().enumerate().collect();
-    crate::pool::each(work, |_, (n, job)| {
-        let Some((sight, (gx0, gy0, gx1, gy1), kept, z)) = job else { return };
+    let done = crate::pool::map(jobs, |job| {
+        let (sight, (gx0, gy0, gx1, gy1), kept, z) = job?;
         let (w, h) = (gx1 - gx0 + 1, gy1 - gy0 + 1);
         // the part of the world's grid kept: this reach and some room
         // around it (the reach of a flickering light changes a little)
@@ -1045,19 +1068,15 @@ fn lit_points(lights: &[Light], sights: Vec<Option<Sight>>, targets: &[Option<Ta
                 }
             }
         }
-        *slots[n].lock().unwrap() = Some((Lit { gx0, gy0, w, h, v }, c));
+        Some((Lit { gx0, gy0, w, h, v }, c))
     });
-    let mut out = Vec::with_capacity(slots.len());
-    for slot in slots {
-        match slot.into_inner().unwrap() {
-            Some((lit, c)) => {
-                cache.lights.push(c);
-                out.push(Some(lit));
-            }
-            None => out.push(None),
-        }
-    }
-    out
+    done.into_iter()
+        .map(|d| {
+            let (lit, c) = d?;
+            cache.lights.push(c);
+            Some(lit)
+        })
+        .collect()
 }
 
 /// Size of a square of `Sight`, in world units (a wall is 32 thick).
@@ -1121,7 +1140,7 @@ impl Sight {
         if len <= end + 1.0 {
             return true;
         }
-        let (t0, t1) = (0.0, (len - end) / len);
+        let t1 = (len - end) / len;
         let cell = SIGHT_CELL as f32;
         let (fx, fy) = ((lx - self.x0) as f32 / cell, (ly - self.y0) as f32 / cell);
         let (mut cx, mut cy) = (fx.floor() as i32, fy.floor() as i32);
@@ -1134,7 +1153,7 @@ impl Sight {
         let mut t = 0.0f32;
         while t < t1 {
             let leave = nx.min(ny);
-            if leave > t0 {
+            if leave > 0.0 {
                 if cx < 0 || cy < 0 || cx >= self.n || cy >= self.n {
                     return true;
                 }
@@ -1179,11 +1198,7 @@ fn in_wall(post: &crate::map::WorldBox, walls: &[crate::map::WorldBox]) -> bool 
 /// `Shadows`. Lava and fire fields (flat lights) get none.
 pub fn sights(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], lights: &[Light]) -> Vec<Option<Sight>> {
     // (the lights spread over the processor cores)
-    let slots: Vec<std::sync::Mutex<Option<Sight>>> = lights.iter().map(|_| std::sync::Mutex::new(None)).collect();
-    crate::pool::each(lights.iter().enumerate().collect(), |_, (k, l): (usize, &Light)| {
-        *slots[k].lock().unwrap() = sight(map, infos, l);
-    });
-    slots.into_iter().map(|s| s.into_inner().unwrap()).collect()
+    crate::pool::map(lights.iter().collect(), |l| sight(map, infos, l))
 }
 
 /// The walls about one light (None: none, or a flat light).
@@ -1269,8 +1284,7 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
     let (tw, th) = ((w + dx) / CELL + 2, (h + dy) / CELL + 2);
     let mut out = vec![None; (tw * th) as usize];
     // (rows of the grid spread over the processor cores)
-    let cores = crate::pool::cores() as i32;
-    let band = ((th + cores - 1) / cores).max(1);
+    let band = crate::pool::band(th);
     let parts: Vec<_> = out.chunks_mut((band * tw) as usize).enumerate().map(|(b, rows)| (b as i32 * band, rows)).collect();
     crate::pool::each(parts, |_, (gy0, rows): (i32, &mut [Option<Target>])| {
         for (r, row) in rows.chunks_mut(tw as usize).enumerate() {
