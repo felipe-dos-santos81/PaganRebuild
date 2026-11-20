@@ -13,7 +13,7 @@
 use crate::map::{Item, MapData, FLG_INVISIBLE};
 use crate::shape::{Frame, Shapes, ShapeInfo, TRANSPARENT};
 use crate::view::{Painted, Surface};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 /// How much darker the ground is in full shadow, in full daylight.
 const DARK: f32 = 0.45;
@@ -183,28 +183,21 @@ pub fn apply(surf: &mut Surface, ids: &[u32], painted: &[Painted], map: &MapData
         return;
     }
     let casters: Vec<Caster> = list.into_iter().map(|(k, frame, sx, sy, flipped, z)| Caster { frame: &held[k].frames[frame], sx, sy, flipped, z }).collect();
-    let bands = (h as usize).div_ceil(crate::pool::cores() * 2).max(8);
 
-    // the top of what is drawn at every pixel (not the figures)
-    let mut tops = vec![NONE; n];
-    let parts: Vec<(usize, &mut [i32])> = tops.chunks_mut(bands * w as usize).enumerate().collect();
-    crate::pool::each(parts, |_, (b, part)| {
-        let start = b * bands * w as usize;
-        for (k, top) in part.iter_mut().enumerate() {
-            let id = ids[start + k];
-            let Some(under) = (id as usize).checked_sub(1).and_then(|i| items.get(i)) else { continue };
-            let Some(info) = infos.get(under.shape as usize) else { continue };
-            if !under.is_actor() {
-                *top = under.z + info.z * 8;
-            }
-        }
-    });
+    // the top of what is drawn at a pixel (not the figures), looked up only
+    // where a shadow may land
+    let top_at = |q: usize| -> i32 {
+        let Some(under) = (ids[q] as usize).checked_sub(1).and_then(|i| items.get(i)) else { return NONE };
+        let Some(info) = infos.get(under.shape as usize) else { return NONE };
+        if under.is_actor() { NONE } else { under.z + info.z * 8 }
+    };
 
-    // the pixels in shadow
-    let shade: Vec<AtomicBool> = (0..n).map(|_| AtomicBool::new(false)).collect();
+    // the pixels in shadow, figure by figure
+    let found: Mutex<Vec<u32>> = Mutex::new(Vec::new());
     crate::pool::run(casters.len(), &|i| {
         let c = &casters[i];
         let f = c.frame;
+        let mut mine = Vec::new();
         // the lowest row drawn: the feet, on the ground
         let Some(lowest) = (0..f.height).rev().find(|&r| f.pixels[(r * f.width) as usize..((r + 1) * f.width) as usize].iter().any(|&p| p != TRANSPARENT)) else { return };
         let top = c.sy - f.yoff;
@@ -230,57 +223,81 @@ pub fn apply(surf: &mut Surface, ids: &[u32], painted: &[Painted], map: &MapData
                         break;
                     }
                     let q = (qy * w + qx) as usize;
-                    let t = tops[q];
+                    let t = top_at(q);
                     if t == NONE {
                         break;
                     }
                     if (t - g).abs() <= NEAR_Z {
-                        shade[q].store(true, Ordering::Relaxed);
+                        mine.push(q as u32);
                         break;
                     }
                     g = t;
                 }
             }
         }
+        if !mine.is_empty() {
+            found.lock().unwrap().extend(mine);
+        }
     });
+    let found = found.into_inner().unwrap();
+    if found.is_empty() {
+        return;
+    }
+
+    // the rest only in the box around them, one pixel wider for the soft
+    // edges (nothing outside it is darkened)
+    let at = |q: u32| ((q % w as u32) as i32, (q / w as u32) as i32);
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, -1, -1);
+    for &q in &found {
+        let (x, y) = at(q);
+        (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+    }
+    let (x0, y0, x1, y1) = ((x0 - 1).max(0), (y0 - 1).max(0), (x1 + 1).min(w - 1), (y1 + 1).min(h - 1));
+    let (bw, bh) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
+    let mut shade = vec![0u8; bw * bh];
+    for &q in &found {
+        let (x, y) = at(q);
+        shade[(y - y0) as usize * bw + (x - x0) as usize] = 1;
+    }
 
     // darken the ground under the shadows, softly at their edges (the
     // share of the 3 x 3 pixels around that are in shadow): first the
     // count across, then down
-    let lit = |i: usize| shade[i].load(Ordering::Relaxed) as u8;
-    let mut across = vec![0u8; n];
-    let parts: Vec<(usize, &mut [u8])> = across.chunks_mut(w as usize).enumerate().collect();
-    crate::pool::each(parts, |y, (_, row)| {
-        let base = y * w as usize;
-        for x in 0..w as usize {
-            let mut c = lit(base + x);
+    let mut across = vec![0u8; bw * bh];
+    let parts: Vec<&mut [u8]> = across.chunks_mut(bw).collect();
+    crate::pool::each(parts, |y, row| {
+        let base = y * bw;
+        for x in 0..bw {
+            let mut c = shade[base + x];
             if x > 0 {
-                c += lit(base + x - 1);
+                c += shade[base + x - 1];
             }
-            if x + 1 < w as usize {
-                c += lit(base + x + 1);
+            if x + 1 < bw {
+                c += shade[base + x + 1];
             }
             row[x] = c;
         }
     });
-    let parts: Vec<(usize, &mut [u32])> = surf.pixels.chunks_mut(bands * w as usize).enumerate().collect();
-    crate::pool::each(parts, |_, (b, part)| {
-        let start = b * bands * w as usize;
-        for (k, px) in part.iter_mut().enumerate() {
-            let i = start + k;
-            let y = (i / w as usize) as i32;
+    let rows = &mut surf.pixels[y0 as usize * w as usize..(y1 as usize + 1) * w as usize];
+    let parts: Vec<&mut [u32]> = rows.chunks_mut(w as usize).collect();
+    crate::pool::each(parts, |by, row| {
+        let line = (y0 as usize + by) * w as usize;
+        for bx in 0..bw {
+            let i = by * bw + bx;
             let mut count = across[i] as u32;
-            if y > 0 {
-                count += across[i - w as usize] as u32;
+            if by > 0 {
+                count += across[i - bw] as u32;
             }
-            if y + 1 < h {
-                count += across[i + w as usize] as u32;
+            if by + 1 < bh {
+                count += across[i + bw] as u32;
             }
-            if count == 0 || tops[i] == NONE {
+            let x = x0 as usize + bx;
+            if count == 0 || top_at(line + x) == NONE {
                 continue;
             }
             let k = 1.0 - sun.dark * count as f32 / 9.0;
             let ch = |v: u32| (v as f32 * k) as u32;
+            let px = &mut row[x];
             *px = (ch((*px >> 16) & 0xFF) << 16) | (ch((*px >> 8) & 0xFF) << 8) | ch(*px & 0xFF);
         }
     });
