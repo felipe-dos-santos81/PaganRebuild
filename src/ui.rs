@@ -43,6 +43,10 @@ pub struct Ui {
     /// Its name, shown over it: it may stand behind the Avatar or
     /// something else, where its light is not seen.
     pub picked_name: Option<String>,
+    /// The last thing picked in the world (and where it lay round the
+    /// Avatar, where he stood): picking again goes on from there while
+    /// he stands still, after the pick was let go (used, a window).
+    pub last_picked: Option<(u16, f32, (i32, i32))>,
     /// The thing picked in an open container's window (windowpick.rs),
     /// and its name.
     pub window_picked: Option<u16>,

@@ -1,0 +1,7 @@
+# Cycle through things, standing still: after the pick was let go (the tableware taken into the backpack, a pick in a window) the next press goes on where it was (the basket after the tableware, the rope again), not from the closest (the bedroll)
+args: --map 3 --pos 14460,5800,8
+do: t5;pickthing:1;pickthing:1;pickthing:1;usenear;t5;pickthing:1;pickthing:1;inv;t5;pickwin:1;inv;t5;pickthing:1;pickthing:1
+expect: usenear: id 20282 shape  181
+expect: pickthing: id 20296 shape  185
+expect: pickthing: id 20294 shape  533
+expect: pickthing: id 20293 shape  176

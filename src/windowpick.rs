@@ -30,42 +30,21 @@ impl Game {
         self.ui.gumps.iter().any(|g| g.owner != AVATAR)
     }
 
-    /// The things in the open windows in the order they are gone through:
-    /// window by window as they lie on the screen, from the left (not by
-    /// which is in front: the window of the thing picked comes to the
-    /// front); in the backpack's slot window along the rows as if its pages
-    /// lay side by side (from the end of a row on one page to the same row
-    /// on the next; a pile once), elsewhere row by row from the top left.
+    /// The things in the open windows (a pile once), window by window.
     fn window_things(&mut self) -> Vec<u16> {
-        let mut windows: Vec<(i32, i32, u16)> = self.ui.gumps.iter().filter(|g| g.owner != AVATAR).map(|g| (g.x, g.y, g.owner)).collect();
-        windows.sort();
-        let owners: Vec<u16> = windows.into_iter().map(|w| w.2).collect();
-        let mut all = Vec::new();
-        for owner in owners {
-            if self.grid_window(owner) {
-                let mut slots: Vec<(usize, usize, u16)> = self.grid_layout(owner).into_iter().map(|(s, id)| (grid_row(s), grid_column(s), id)).collect();
-                slots.sort();
-                all.extend(slots.into_iter().map(|s| s.2));
-                continue;
-            }
-            let mut things: Vec<(i32, i32, u16)> = self
-                .map()
-                .items
-                .iter()
-                .filter(|it| !it.gone && it.parent == owner && it.id != 0)
-                .filter(|it| !self.data.infos.get(it.shape as usize).is_some_and(|si| si.editor))
-                // (inside a container the y field holds the place in the window)
-                .map(|it| ((it.y >> 8) & 0xFF, it.y & 0xFF, it.id))
-                .collect();
-            things.sort();
-            all.extend(things.into_iter().map(|t| t.2));
-        }
-        all
+        let owners: Vec<u16> = self.pick_windows().into_iter().map(|w| w.1).collect();
+        owners.into_iter().flat_map(|o| self.window_cells(o).into_iter().map(|c| c.2).collect::<Vec<_>>()).collect()
     }
 
-    /// Picks the next thing in the open windows (`step` 1) or the one
-    /// before (-1); the first press the first (or last) one. The backpack
-    /// turns to the page it is on. None if the windows are empty.
+    /// Picks the next thing in the open windows (`step` 1, to the right)
+    /// or the one before (-1). In the backpack's slots the pick stays in
+    /// its row, the pages turning along; at the end of the row it goes
+    /// over to the window lying on that side (into its row nearest the
+    /// height it left at), else round to the other end of the same row.
+    /// Elsewhere it goes through the things row by row and over to the
+    /// window beside at the end. The first press picks the first (or
+    /// last) thing of the window on the left (right), in the backpack on
+    /// the page shown. None if the windows are empty.
     pub fn pick_in_window(&mut self, step: i32) -> Option<u16> {
         if !self.options.pick_things {
             self.ui.window_picked = None;
@@ -73,18 +52,14 @@ impl Game {
         }
         // the pick in the world gives way: the last one picked counts
         self.ui.picked = None;
-        let things = self.window_things();
-        if things.is_empty() {
+        let id = match self.window_picked() {
+            Some(id) => self.window_step(id, step),
+            None => self.window_start(step),
+        };
+        let Some(id) = id else {
             self.ui.window_picked = None;
             return None;
-        }
-        let n = things.len() as i32;
-        let at = match self.ui.window_picked.and_then(|id| things.iter().position(|&t| t == id)) {
-            Some(i) => (i as i32 + step).rem_euclid(n),
-            None if step < 0 => n - 1,
-            None => 0,
         };
-        let id = things[at as usize];
         if self.ui.window_picked != Some(id) {
             self.ui.window_picked_name = self.look_name(id).or_else(|| self.unnamed_thing(id));
         }
@@ -100,6 +75,144 @@ impl Game {
         Some(id)
     }
 
+    /// The first press: the first thing (`step` 1) of the leftmost window
+    /// with something in it, or the last (-1) of the rightmost one; in the
+    /// backpack's slots on the page shown.
+    fn window_start(&mut self, step: i32) -> Option<u16> {
+        let mut windows = self.pick_windows();
+        if step < 0 {
+            windows.reverse();
+        }
+        for (_, owner) in windows {
+            let cells = self.cells_shown(owner);
+            let first = if step < 0 { cells.last() } else { cells.first() };
+            if let Some(&(_, _, id)) = first {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// One step from thing `id` (see `pick_in_window`).
+    fn window_step(&mut self, id: u16, step: i32) -> Option<u16> {
+        let owner = self.map().get(id)?.parent;
+        let cells = self.window_cells(owner);
+        let &(row, col, _) = cells.iter().find(|c| c.2 == id)?;
+        let grid = self.grid_window(owner);
+        // the backpack turned to another page since (its page buttons): on
+        // in the same row there, else from the start of that page
+        if grid && col as usize / crate::inventory::COLS != self.grid_page(owner) {
+            let shown = self.cells_shown(owner);
+            let in_row: Vec<u16> = shown.iter().filter(|c| c.0 == row).map(|c| c.2).collect();
+            let all: Vec<u16> = shown.iter().map(|c| c.2).collect();
+            let from = if in_row.is_empty() { all } else { in_row };
+            if let Some(&next) = if step < 0 { from.last() } else { from.first() } {
+                return Some(next);
+            }
+        }
+        // in the backpack along the row, elsewhere through all the things
+        let line: Vec<u16> = cells.iter().filter(|c| !grid || c.0 == row).map(|c| c.2).collect();
+        let i = line.iter().position(|&t| t == id)? as i32 + step;
+        if i >= 0 && i < line.len() as i32 {
+            return Some(line[i as usize]);
+        }
+        if let Some(next) = self.window_beside(owner, id, step) {
+            return Some(next);
+        }
+        Some(line[if step < 0 { line.len() - 1 } else { 0 }])
+    }
+
+    /// Over into the window beside window `owner` on the side of `step`
+    /// (the nearest one there with something shown): the thing at its
+    /// near end of the row nearest the height of thing `from`.
+    fn window_beside(&mut self, owner: u16, from: u16, step: i32) -> Option<u16> {
+        let windows = self.pick_windows();
+        let &(x, _) = windows.iter().find(|w| w.1 == owner)?;
+        let gi = self.ui.gumps.iter().position(|g| g.owner == owner)?;
+        let y = self.pick_rect(gi, from).map(|r| (r.1 + r.3) / 2)?;
+        let mut beside: Vec<(i32, u16)> = windows.into_iter().filter(|w| w.1 != owner && (w.0 - x) * step > 0).collect();
+        beside.sort_by_key(|w| (w.0 - x).abs());
+        for (_, other) in beside {
+            let Some(gi) = self.ui.gumps.iter().position(|g| g.owner == other) else { continue };
+            let cells: Vec<(i32, i32, u16, i32)> = self
+                .cells_shown(other)
+                .into_iter()
+                .filter_map(|(r, c, t)| self.pick_rect(gi, t).map(|rect| (r, c, t, (rect.1 + rect.3) / 2)))
+                .collect();
+            let Some(row) = cells.iter().min_by_key(|c| (c.3 - y).abs()).map(|c| c.0) else { continue };
+            let in_row = cells.iter().filter(|c| c.0 == row);
+            let at = if step < 0 { in_row.max_by_key(|c| c.1) } else { in_row.min_by_key(|c| c.1) };
+            if let Some(c) = at {
+                return Some(c.2);
+            }
+        }
+        None
+    }
+
+    /// The open windows that hold things (not the Avatar's own), with the
+    /// middle of each across the screen, from the left.
+    fn pick_windows(&self) -> Vec<(i32, u16)> {
+        let mut windows: Vec<(i32, u16)> = self
+            .ui
+            .gumps
+            .iter()
+            .filter(|g| g.owner != AVATAR)
+            .map(|g| {
+                let area = self.data.gump_areas.get(g.shape.saturating_sub(1) as usize).copied().unwrap_or([0; 4]);
+                (g.x + (area[0] + area[2]) / 2, g.owner)
+            })
+            .collect();
+        windows.sort();
+        windows
+    }
+
+    /// Every thing of window `owner` with its row and column, row by row
+    /// from the top left: in the backpack's slots the pages side by side
+    /// (a row runs on over all pages), elsewhere their place in the window,
+    /// one a few pixels higher or lower than the one before it still in
+    /// the same row.
+    fn window_cells(&mut self, owner: u16) -> Vec<(i32, i32, u16)> {
+        if self.grid_window(owner) {
+            let mut cells: Vec<(i32, i32, u16)> = self.grid_layout(owner).into_iter().map(|(s, t)| (grid_row(s) as i32, grid_column(s) as i32, t)).collect();
+            cells.sort();
+            return cells;
+        }
+        const SAME_ROW: i32 = 2;
+        let mut things: Vec<(i32, i32, u16)> = self
+            .map()
+            .items
+            .iter()
+            .filter(|it| !it.gone && it.parent == owner && it.id != 0)
+            .filter(|it| !self.data.infos.get(it.shape as usize).is_some_and(|si| si.editor))
+            // (inside a container the y field holds the place in the window)
+            .map(|it| ((it.y >> 8) & 0xFF, it.y & 0xFF, it.id))
+            .collect();
+        things.sort();
+        let (mut row, mut last) = (0, None);
+        let mut cells: Vec<(i32, i32, u16)> = things
+            .into_iter()
+            .map(|(y, x, t)| {
+                if last.is_some_and(|l| y - l > SAME_ROW) {
+                    row += 1;
+                }
+                last = Some(y);
+                (row, x, t)
+            })
+            .collect();
+        cells.sort();
+        cells
+    }
+
+    /// `window_cells`, in the backpack's slots only those on the page shown.
+    fn cells_shown(&mut self, owner: u16) -> Vec<(i32, i32, u16)> {
+        let cells = self.window_cells(owner);
+        if !self.grid_window(owner) {
+            return cells;
+        }
+        let page = self.grid_page(owner);
+        cells.into_iter().filter(|c| c.1 as usize / crate::inventory::COLS == page).collect()
+    }
+
     /// Moves the pick in its window a row up (`step` -1) or down (1): in the
     /// backpack's slots the slot above or below, else the nearest thing in
     /// the next row with something in it, as close to the same column as
@@ -109,36 +222,8 @@ impl Game {
     pub fn pick_in_window_row(&mut self, step: i32) -> bool {
         let Some(id) = self.window_picked() else { return false };
         let Some(owner) = self.map().get(id).map(|it| it.parent) else { return false };
-        // every thing of the window with its row and column (in the
-        // backpack the pages side by side: up and down stay on the page)
-        let cells: Vec<(i32, i32, u16)> = if self.grid_window(owner) {
-            self.grid_layout(owner).into_iter().map(|(s, t)| (grid_row(s) as i32, grid_column(s) as i32, t)).collect()
-        } else {
-            // things lying about: their place in the window (pixels); one
-            // a few pixels higher or lower than the one before it is still
-            // in the same row
-            const SAME_ROW: i32 = 2;
-            let mut things: Vec<(i32, i32, u16)> = self
-                .map()
-                .items
-                .iter()
-                .filter(|it| !it.gone && it.parent == owner && it.id != 0)
-                .filter(|it| !self.data.infos.get(it.shape as usize).is_some_and(|si| si.editor))
-                .map(|it| ((it.y >> 8) & 0xFF, it.y & 0xFF, it.id))
-                .collect();
-            things.sort();
-            let (mut row, mut last) = (0, None);
-            things
-                .into_iter()
-                .map(|(y, x, t)| {
-                    if last.is_some_and(|l| y - l > SAME_ROW) {
-                        row += 1;
-                    }
-                    last = Some(y);
-                    (row, x, t)
-                })
-                .collect()
-        };
+        // (in the backpack the pages side by side: up and down stay on the page)
+        let cells = self.window_cells(owner);
         let Some(&(row, col, _)) = cells.iter().find(|c| c.2 == id) else { return false };
         // the nearest row in that direction with something in it, else
         // round to the farthest one the other way
@@ -204,24 +289,28 @@ impl Game {
         self.put_in_container(id, target, gx, gy)
     }
 
+    /// Where thing `id` is in window `gi` on the screen (left, top, right,
+    /// bottom: the frame of the pick), if it is shown there.
+    fn pick_rect(&mut self, gi: usize, id: u16) -> Option<(i32, i32, i32, i32)> {
+        let it = self.map().get(id).copied()?;
+        let owner = self.ui.gumps[gi].owner;
+        if it.parent != owner {
+            return None;
+        }
+        if self.grid_window(owner) {
+            return self.grid_slot_rect(gi, id);
+        }
+        let (ox, oy) = self.gump_item_origin(gi)?;
+        let f = self.data.shapes.get(it.shape).and_then(|s| s.frames.get(it.frame as usize).map(|f| (f.xoff, f.yoff, f.width, f.height)))?;
+        let (x, y) = (ox + (it.y & 0xFF) - f.0, oy + ((it.y >> 8) & 0xFF) - f.1);
+        Some((x - 2, y - 2, x + f.2 + 1, y + f.3 + 1))
+    }
+
     /// A frame around the thing picked, if it is in window `gi` (on the
     /// page shown).
     pub fn draw_window_pick(&mut self, surf: &mut Surface, gi: usize) {
         let Some(id) = self.ui.window_picked else { return };
-        let Some(it) = self.map().get(id).copied() else { return };
-        let owner = self.ui.gumps[gi].owner;
-        if it.parent != owner {
-            return;
-        }
-        let rect = if self.grid_window(owner) {
-            self.grid_slot_rect(gi, id)
-        } else {
-            let Some((ox, oy)) = self.gump_item_origin(gi) else { return };
-            let Some(f) = self.data.shapes.get(it.shape).and_then(|s| s.frames.get(it.frame as usize).map(|f| (f.xoff, f.yoff, f.width, f.height))) else { return };
-            let (x, y) = (ox + (it.y & 0xFF) - f.0, oy + ((it.y >> 8) & 0xFF) - f.1);
-            Some((x - 2, y - 2, x + f.2 + 1, y + f.3 + 1))
-        };
-        let Some((x0, y0, x1, y1)) = rect else { return };
+        let Some((x0, y0, x1, y1)) = self.pick_rect(gi, id) else { return };
         let c = if self.ui.targeting.is_some() { TARGET_FRAME } else { FRAME };
         for x in x0..=x1 {
             surf.put(x, y0, c);

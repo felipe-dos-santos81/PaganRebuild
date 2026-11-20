@@ -262,7 +262,9 @@ impl Game {
     /// Option "cycle through things": picks the next thing in reach
     /// (`step` 1) or the one before (-1), going round the Avatar clockwise
     /// as they lie on the screen: what can be used or taken (what the key
-    /// that shows everything lights up). The first press picks the closest.
+    /// that shows everything lights up). The first press picks the closest;
+    /// if he has not moved since the last pick, the thing picked last
+    /// again (or, gone, the next one round from where it lay).
     /// None if there is nothing in reach. While the game asks for a
     /// target, the people and creatures in view are among them too, near
     /// or far (a spell's target).
@@ -291,10 +293,20 @@ impl Game {
         };
         let mut ring: Vec<(f32, u16)> = near.iter().map(|&id| (angle(self, id), id)).collect();
         ring.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let stands = (avatar.x, avatar.y);
+        let last = self.ui.last_picked.filter(|l| l.2 == stands);
         let picked = match self.ui.picked.and_then(|id| ring.iter().position(|r| r.1 == id)) {
             Some(i) => ring[(i as i32 + step).rem_euclid(ring.len() as i32) as usize].1,
-            None => closest,
+            None => match last {
+                Some((id, _, _)) if ring.iter().any(|r| r.1 == id) => id,
+                Some((_, a, _)) if step < 0 => ring.iter().rev().find(|r| r.0 < a).unwrap_or(&ring[ring.len() - 1]).1,
+                Some((_, a, _)) => ring.iter().find(|r| r.0 > a).unwrap_or(&ring[0]).1,
+                None => closest,
+            },
         };
+        if let Some(r) = ring.iter().find(|r| r.1 == picked) {
+            self.ui.last_picked = Some((picked, r.0, stands));
+        }
         if self.ui.picked != Some(picked) {
             self.ui.picked_name = self.look_name(picked).or_else(|| self.unnamed_thing(picked));
         }

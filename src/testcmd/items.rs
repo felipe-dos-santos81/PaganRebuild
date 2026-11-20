@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 26] = [
+const COMMANDS: [(&str, super::Group); 27] = [
     ("dragpointer", cmd_dragpointer),
     ("hurl", cmd_hurl),
     ("drag", cmd_drag),
@@ -37,6 +37,7 @@ const COMMANDS: [(&str, super::Group); 26] = [
     ("piles", cmd_piles),
     ("dropsplit", cmd_dropsplit),
     ("gridclick", cmd_gridclick),
+    ("gridturn", cmd_gridturn),
 ];
 
 /// dragpointer:<id>:<x>,<y>  carrying the item: what letting go there would do (the pointer)
@@ -320,6 +321,15 @@ fn cmd_dropsplit(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
     let ok = game.begin_drag(num(id)? as u16, x, y) && game.drop_drag_split(x, y);
     game.ui.drag = None;
     println!("{cmd}: {} {}", if ok { "ok" } else { "not possible" }, game.ui.slider.as_ref().map_or("".to_string(), |s| format!("asks, value {}", s.value)));
+    Ok(Flow::Done)
+}
+
+/// gridturn:<pages>  turn the backpack's page (as its arrows or the wheel)
+fn cmd_gridturn(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let by = number(arg, cmd)?;
+    let pack = game.backpack().ok_or("no backpack")?;
+    game.grid_turn(pack, by);
+    println!("gridturn: page {}", game.shown_page(pack));
     Ok(Flow::Done)
 }
 
