@@ -900,6 +900,7 @@ impl Game {
         self.path_budget = crate::path::NODES_PER_TICK;
         self.tick_vitals();
         self.tidy_potions();
+        self.keys_to_ring();
         self.tick_passersby();
         self.tick_journal();
         self.tick_guide();

@@ -1,0 +1,4 @@
+# Without the better inventory a key taken stays where it was put (the original's way)
+args: --map 3 --pos 14700,5700,8
+do: option:better_inventory,off;pack:79;t10;pack:82,0,31;t10;find:82
+expect: q 31 npc 0 map 3 parent 20310

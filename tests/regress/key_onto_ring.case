@@ -1,0 +1,7 @@
+# Better inventory: a key that comes into the Avatar's things goes onto his key ring by itself (key 31); the key he had already stays (key 30), so do the key blank (number 0) and a key with a larger number (300)
+args: --map 3 --pos 14700,5700,8
+do: option:better_inventory,on;pack:79;pack:82,0,30;t10;pack:82,0,31;pack:82,0,0;pack:82,0,300;t10;find:82
+expect: q 31 npc 0 map 3 parent 20311
+expect: q 30 npc 0 map 3 parent 20310
+expect: q 0 npc 0 map 3 parent 20310
+expect: q 300 npc 0 map 3 parent 20310

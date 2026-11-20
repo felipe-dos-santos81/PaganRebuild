@@ -43,6 +43,7 @@ mod journal;
 mod spellnotes;
 mod quests;
 mod jump;
+mod keys;
 mod lighting;
 mod magic;
 mod map;

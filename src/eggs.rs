@@ -366,6 +366,7 @@ impl Game {
             self.view.lerps.clear();
             self.ui.picked = None;
             self.ui.last_picked = None;
+            self.ui.keys_carried = None;
             self.ui.window_picked = None;
             self.ui.use_menu = None;
             self.cache_in();

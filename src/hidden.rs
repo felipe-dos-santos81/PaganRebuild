@@ -19,7 +19,7 @@ const FILL: u32 = 0;
 const LINE: u32 = 130;
 /// Only keys: other things (bones behind a shield on an altar) shone
 /// through what covers them like a fault.
-const KEY: u32 = 82;
+const KEY: u32 = crate::keys::KEY;
 /// Hidden when at most this share (percent) of it can be seen.
 const VISIBLE: usize = 50;
 

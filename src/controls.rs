@@ -620,8 +620,7 @@ impl Game {
         if !self.player_in_control() || self.state(AVATAR).dead {
             return false;
         }
-        let found = self.map().items.iter().find(|it| !it.gone && it.shape == KEYRING && it.parent != 0 && self.root_container(it.id) == AVATAR).map(|it| it.id);
-        match found {
+        match self.key_ring() {
             Some(id) => {
                 self.interact(id, true);
                 true
