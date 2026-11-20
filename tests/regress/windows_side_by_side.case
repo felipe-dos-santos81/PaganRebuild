@@ -1,0 +1,5 @@
+# Container windows open side by side: two barrels by the hut (map 4), the backpack (better inventory) and the Avatar's own window cover nothing of each other and all lie in the picture
+args: --map 4 --pos 10668,10060,48
+do: option:better_inventory,on;t5;operate:36462;t5;operate:36477;t5;inv;t5;stats;t5;windows
+expect: windows: 4 open, 0 pixels covered, 0 outside
+expect: window 36462: 16,16

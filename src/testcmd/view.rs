@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 47] = [
+const COMMANDS: [(&str, super::Group); 48] = [
     ("blackframes", cmd_blackframes),
     ("outline", cmd_outline),
     ("pickat", cmd_pickat),
@@ -23,6 +23,7 @@ const COMMANDS: [(&str, super::Group); 47] = [
     ("bandcheck", cmd_bandcheck),
     ("gpucheck", cmd_gpucheck),
     ("gumpinfo", cmd_gumpinfo),
+    ("windows", cmd_windows),
     ("minimap", cmd_minimap),
     ("smooth", cmd_smooth),
     ("flicker", cmd_flicker),
@@ -253,6 +254,31 @@ fn cmd_gpucheck(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st
         a.pixels = up.out.clone();
         let _ = save_png(Path::new("gpucheck_cpu.png"), &a);
     }
+    Ok(Flow::Done)
+}
+
+/// windows  the open windows (owner, left, top, right, bottom) and how many
+/// pixels of them cover each other
+fn cmd_windows(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
+    let list: Vec<(u16, u32, i32, i32)> = game.ui.gumps.iter().map(|g| (g.owner, g.shape, g.x, g.y)).collect();
+    let mut rects = Vec::new();
+    for (owner, shape, x, y) in list {
+        let (w, h) = game.gump_size(owner, shape);
+        println!("window {owner}: {x},{y} - {},{}", x + w, y + h);
+        rects.push((x, y, x + w, y + h));
+    }
+    let mut covered = 0;
+    for (i, a) in rects.iter().enumerate() {
+        for b in &rects[i + 1..] {
+            let (w, h) = (a.2.min(b.2) - a.0.max(b.0), a.3.min(b.3) - a.1.max(b.1));
+            if w > 0 && h > 0 {
+                covered += w * h;
+            }
+        }
+    }
+    let (vw, vh) = game.view.size;
+    let outside = rects.iter().filter(|r| r.0 < 0 || r.1 < 0 || r.2 > vw || r.3 > vh).count();
+    println!("windows: {} open, {covered} pixels covered, {outside} outside", rects.len());
     Ok(Flow::Done)
 }
 

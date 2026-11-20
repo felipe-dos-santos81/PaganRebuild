@@ -74,15 +74,86 @@ impl Game {
         if self.ui.gumps.iter().any(|g| g.owner == owner) || self.data.gump_shapes.get(shape).is_none() {
             return;
         }
-        // cascade new windows from the top left
-        let n = self.ui.gumps.len() as i32;
-        self.ui.gumps.push(Gump { owner, shape, x: 16 + 36 * (n % 6), y: 16 + 24 * (n % 6) });
+        let (x, y) = self.place_gump(owner, shape);
+        self.ui.gumps.push(Gump { owner, shape, x, y });
         if let Some(idx) = self.map().index(owner) {
             self.map_mut().items[idx].flags |= FLG_GUMP_OPEN;
         }
         if self.grid_window(owner) {
             self.join_all_stacks(owner);
         }
+    }
+
+    /// Where a new window goes: the first at the top left; the next ones
+    /// close beside the windows open (to the right of, below, left of or
+    /// above one, a few pixels apart), where they cover none of them and
+    /// stay in the picture, the place nearest the middle of the open ones
+    /// first. With no room left, where they cover the least.
+    fn place_gump(&mut self, owner: u16, shape: u32) -> (i32, i32) {
+        const FIRST: (i32, i32) = (16, 16);
+        const GAP: i32 = 2;
+        let (vw, vh) = self.view.size;
+        let (w, h) = self.gump_size(owner, shape);
+        let windows: Vec<(u16, u32, i32, i32)> = self.ui.gumps.iter().map(|g| (g.owner, g.shape, g.x, g.y)).collect();
+        let open: Vec<(i32, i32, i32, i32)> = windows
+            .into_iter()
+            .map(|(o, sh, x, y)| {
+                let (gw, gh) = self.gump_size(o, sh);
+                (x, y, x + gw, y + gh)
+            })
+            .collect();
+        if open.is_empty() {
+            return FIRST;
+        }
+        let mut places = vec![FIRST];
+        for &(x0, y0, x1, y1) in &open {
+            places.extend([
+                (x1 + GAP, y0),
+                (x1 + GAP, y1 - h),
+                (x0, y1 + GAP),
+                (x1 - w, y1 + GAP),
+                (x0 - GAP - w, y0),
+                (x0 - GAP - w, y1 - h),
+                (x0, y0 - GAP - h),
+                (x1 - w, y0 - GAP - h),
+            ]);
+        }
+        // the middle of the windows open
+        let (mx, my) = {
+            let n = open.len() as i64;
+            let sx: i64 = open.iter().map(|r| (r.0 + r.2) as i64).sum();
+            let sy: i64 = open.iter().map(|r| (r.1 + r.3) as i64).sum();
+            (sx / (2 * n), sy / (2 * n))
+        };
+        let covered = |x: i32, y: i32| -> i64 {
+            open.iter()
+                .map(|&(x0, y0, x1, y1)| {
+                    let cw = (x + w).min(x1) - x.max(x0);
+                    let ch = (y + h).min(y1) - y.max(y0);
+                    if cw > 0 && ch > 0 { cw as i64 * ch as i64 } else { 0 }
+                })
+                .sum()
+        };
+        let best = places
+            .into_iter()
+            .filter(|&(x, y)| x >= 0 && y >= 0 && x + w <= vw && y + h <= vh)
+            .min_by_key(|&(x, y)| {
+                let (cx, cy) = ((x + w / 2) as i64, (y + h / 2) as i64);
+                (covered(x, y), (cx - mx).pow(2) + (cy - my).pow(2))
+            });
+        // (a picture too small for it: cascading from the top left, as before)
+        best.unwrap_or_else(|| {
+            let n = self.ui.gumps.len() as i32;
+            (16 + 36 * (n % 6), 16 + 24 * (n % 6))
+        })
+    }
+
+    /// The width and height of a window on the screen.
+    pub(crate) fn gump_size(&mut self, owner: u16, shape: u32) -> (i32, i32) {
+        if self.grid_window(owner) {
+            return (crate::inventory::WIDTH, crate::inventory::HEIGHT);
+        }
+        self.data.gump_shapes.get(shape).and_then(|s| s.frames.first().map(|f| (f.width, f.height))).unwrap_or((0, 0))
     }
 
     pub fn close_gump(&mut self, owner: u16) {
