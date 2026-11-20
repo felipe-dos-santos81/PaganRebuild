@@ -58,6 +58,7 @@ mod pacing;
 mod pool;
 mod potions;
 mod save;
+mod scriptfix;
 mod savegame;
 mod shape;
 mod sleep;

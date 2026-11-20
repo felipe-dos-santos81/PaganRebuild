@@ -1,0 +1,8 @@
+# German: after the third test (the foci made) "Ich habe die dritte Prüfung bestanden." gets Stellos's answer meant for it (something terrible has happened: Xavier's focus is gone), not the one of the time before the foci (make your foci, and how to make them); the German script offered the line with a capital D, which only the earlier answer took
+needs: GERMAN/USECODE/GUSECODE.FLX
+args: --lang GERMAN --map 37 --pos 20060,18134,56
+do: t5;flag:stellosMet=1;flag:stellosName=1;flag:stellosJob=1;flag:passedWisdomTest=1;flag:passedCenteredTest=1;flag:silverMineKeyGiven=1;flag:hasOwnFoci=1;flag:madeToraxForTest=1;flag:passedThirdTest=1
+do: talk:23;say:dritte Pr;t60;say:Was ist geschehen;t200;flag:focusMissing
+expect: say:dritte Pr: Ich habe die dritte Pr
+expect: flag focusMissing: 1
+reject: Wie fertigt man die Symbole an

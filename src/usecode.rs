@@ -22,7 +22,10 @@ impl Usecode {
     pub fn load(path: &Path) -> io::Result<Usecode> {
         let flex = Flex::open(path)?;
         // entry 0: names of the globals, entry 1: class names
-        let classes = (2..flex.len()).map(|i| flex.get(i).filter(|d| d.len() > BASE + 128).map(|d| Rc::new(d.to_vec()))).collect();
+        let mut classes: Vec<Option<Vec<u8>>> = (2..flex.len()).map(|i| flex.get(i).filter(|d| d.len() > BASE + 128).map(|d| d.to_vec())).collect();
+        // mistakes in the scripts themselves (scriptfix.rs)
+        crate::scriptfix::apply(&mut classes);
+        let classes = classes.into_iter().map(|c| c.map(Rc::new)).collect();
         let flags = read_flags(flex.get(0).unwrap_or_default());
         Ok(Usecode { classes, globals: vec![0; 0x2000], flags })
     }
