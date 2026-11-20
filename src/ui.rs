@@ -51,6 +51,9 @@ pub struct Ui {
     /// and its name.
     pub window_picked: Option<u16>,
     pub window_picked_name: Option<String>,
+    /// The thing picked last in each container's window (by the
+    /// container): switching back to a window goes on there.
+    pub window_marks: crate::hash::HashMap<u16, u16>,
     /// The small menu "use or take" for a thing that can be both
     /// (usemenu.rs), while it is open.
     pub use_menu: Option<crate::usemenu::UseMenu>,

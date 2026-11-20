@@ -954,7 +954,9 @@ impl Play {
         // Option "cycle through things", the pad (only its presses: the
         // keyboard keeps its keys, it has the mouse). With a container open
         // the buttons for kicking and closing windows go through the things
-        // in the open windows, and jumping closes them. With the weapon away
+        // in the open windows, the buttons for combat mode and blocking go
+        // over into the window to the left or right, and jumping closes
+        // them. With the weapon away
         // and a thing picked in a window, attacking moves it between the
         // backpack and the other container (out of the backpack is the one
         // thing "use" cannot do). While the game asks for a target
@@ -965,11 +967,15 @@ impl Play {
         let fighting = game.fighting();
         let pad = |k: Key| window.pad_holds(k) && window.is_key_pressed(k, KeyRepeat::No);
         let (win_back, win_next) = (pad_windows && pad(Key::Q), pad_windows && pad(Key::C));
+        let (other_back, other_next) = (pad_windows && pad(Key::Tab), pad_windows && pad(Key::B));
         let cancel_target = picking && targeting && pad(Key::J);
         let win_close = !cancel_target && pad_windows && pad(Key::J);
         let take = pad_windows && !targeting && !fighting && game.ui.window_picked.is_some() && pad(Key::F);
         if win_back || win_next {
             game.pick_in_window(if win_back { -1 } else { 1 });
+        }
+        if other_back || other_next {
+            game.pick_other_window(if other_back { -1 } else { 1 });
         }
         if cancel_target {
             game.target_picked(0);
@@ -1005,7 +1011,7 @@ impl Play {
         if window.is_key_pressed(Key::J, KeyRepeat::No) && !win_close && !cancel_target {
             game.jump(pointer, w, h);
         }
-        if window.is_key_pressed(Key::Tab, KeyRepeat::No) {
+        if window.is_key_pressed(Key::Tab, KeyRepeat::No) && !other_back {
             game.toggle_combat();
         }
         if window.is_key_pressed(Key::F, KeyRepeat::No) && !take {
@@ -1024,7 +1030,8 @@ impl Play {
         if window.is_key_pressed(Key::Q, KeyRepeat::No) && !win_back {
             game.avatar_attack(None, true);
         }
-        game.avatar_block(window.is_key_down(Key::B));
+        // (the pad's button switches windows while they are open)
+        game.avatar_block(window.is_key_down(Key::B) && !(pad_windows && window.pad_holds(Key::B)));
         if modern && window.is_key_pressed(Key::E, KeyRepeat::No) {
             if !game.player_may_order() && game.ui.targeting.is_none() {
                 // a scene is playing: on to its next line, as with a click

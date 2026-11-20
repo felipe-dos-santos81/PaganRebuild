@@ -60,19 +60,54 @@ impl Game {
             self.ui.window_picked = None;
             return None;
         };
+        self.set_window_pick(id);
+        Some(id)
+    }
+
+    /// Over into the next window to the right (`step` 1) or left (-1), round
+    /// at the end, with one press: onto the thing picked there last if it
+    /// is still there, else the first one shown. Nothing picked yet: as
+    /// the first press of `pick_in_window`. None if the windows are empty.
+    pub fn pick_other_window(&mut self, step: i32) -> Option<u16> {
+        if !self.options.pick_things {
+            self.ui.window_picked = None;
+            return None;
+        }
+        self.ui.picked = None;
+        let Some(owner) = self.window_picked().and_then(|id| self.map().get(id)).map(|it| it.parent) else {
+            return self.pick_in_window(step);
+        };
+        let windows: Vec<u16> = self.pick_windows().into_iter().map(|w| w.1).collect();
+        let at = windows.iter().position(|&o| o == owner)? as i32;
+        let n = windows.len() as i32;
+        for k in 1..n {
+            let other = windows[(at + k * step).rem_euclid(n) as usize];
+            let things = self.window_cells(other);
+            let mark = self.ui.window_marks.get(&other).copied().filter(|m| things.iter().any(|c| c.2 == *m));
+            if let Some(id) = mark.or_else(|| self.cells_shown(other).first().map(|c| c.2)).or_else(|| things.first().map(|c| c.2)) {
+                self.set_window_pick(id);
+                return Some(id);
+            }
+        }
+        self.ui.window_picked
+    }
+
+    /// Picks thing `id` in its window: its name, the backpack on its
+    /// page, the window to the front (as when it is clicked), kept as the
+    /// window's last pick.
+    fn set_window_pick(&mut self, id: u16) {
         if self.ui.window_picked != Some(id) {
             self.ui.window_picked_name = self.look_name(id).or_else(|| self.unnamed_thing(id));
         }
         self.ui.window_picked = Some(id);
         self.show_page_of(id);
-        // its window comes to the front, as when it is clicked
         if let Some(parent) = self.map().get(id).map(|it| it.parent) {
+            self.ui.window_marks.insert(parent, id);
             if let Some(gi) = self.ui.gumps.iter().position(|g| g.owner == parent) {
                 let g = self.ui.gumps.remove(gi);
                 self.ui.gumps.push(g);
             }
         }
-        Some(id)
     }
 
     /// The first press: the first thing (`step` 1) of the leftmost window
@@ -236,11 +271,7 @@ impl Game {
             .or_else(|| cells.iter().map(|c| c.0).filter(|&r| r != row).max_by_key(|&r| (r - row).abs()));
         let Some(target_row) = target_row else { return false };
         let Some(&(_, _, next)) = cells.iter().filter(|c| c.0 == target_row).min_by_key(|c| ((c.1 - col).abs(), c.1)) else { return false };
-        if next != id {
-            self.ui.window_picked_name = self.look_name(next).or_else(|| self.unnamed_thing(next));
-        }
-        self.ui.window_picked = Some(next);
-        self.show_page_of(next);
+        self.set_window_pick(next);
         true
     }
 

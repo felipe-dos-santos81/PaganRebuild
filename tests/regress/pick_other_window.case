@@ -1,0 +1,8 @@
+# The pad's shoulder buttons with the barrel by the hut (map 4) and the backpack (better inventory) open: one press over into the other window, onto the thing picked there last (the debris in the barrel, the Slayer in the backpack), the first time onto its first thing (the dagger)
+args: --map 4 --pos 10624,10060,48
+do: option:better_inventory,on;pack:418;pack:420;pack:816;pack:814;pack:843;pack:793,1;pack:793,3
+do: t5;operate:36462;t10;inv;t5;pickwin:1;pickwin:1;pickother:1;pickwin:1;pickwin:1;pickother:1;pickother:-1
+expect: pickother: id 36734 shape  418
+expect: pickother: id 36467 shape  471
+expect: pickother: id 36736 shape  816
+reject: pickother: id 36463
