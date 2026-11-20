@@ -1,0 +1,8 @@
+# The pad in the backpack (better inventory): up and down stay in the column; below the third row the first column is empty (a potion slot), so down goes round to the top of the column, not over into the thing in the last column of that row
+args: --map 4 --pos 10624,10060,48
+do: option:better_inventory,on;pack:418;pack:420;pack:816;pack:814;pack:843;pack:793,1;pack:793,3;pack:793,4;pack:798,3;pack:442;pack:534;pack:613;pack:817;pack:842;pack:798,0;pack:798,1;pack:798,2;pack:798,4
+do: inv;t5;pickwin:1;pickrow:1;pickwin:-1;pickrow:1;pickrow:1
+expect: pickwin: id 36739
+expect: pickrow: true id 36745
+expect: pickrow: true id 36739
+reject: pickrow: true id 36751

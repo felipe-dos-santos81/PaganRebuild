@@ -249,17 +249,21 @@ impl Game {
     }
 
     /// Moves the pick in its window a row up (`step` -1) or down (1): in the
-    /// backpack's slots the slot above or below, else the nearest thing in
-    /// the next row with something in it, as close to the same column as
-    /// can be; the pages turn along. Elsewhere the next thing above or
-    /// below. At the top or bottom it goes round to the other end of the
-    /// window. False if nothing is picked in a window.
+    /// backpack's slots the next thing above or below in the same column
+    /// (empty slots passed over, never into another column; alone in its
+    /// column it stays). Elsewhere the nearest thing in the next row with
+    /// something in it, as close to the same column as can be. At the top
+    /// or bottom it goes round to the other end. False if nothing is
+    /// picked in a window.
     pub fn pick_in_window_row(&mut self, step: i32) -> bool {
         let Some(id) = self.window_picked() else { return false };
         let Some(owner) = self.map().get(id).map(|it| it.parent) else { return false };
         // (in the backpack the pages side by side: up and down stay on the page)
-        let cells = self.window_cells(owner);
+        let mut cells = self.window_cells(owner);
         let Some(&(row, col, _)) = cells.iter().find(|c| c.2 == id) else { return false };
+        if self.grid_window(owner) {
+            cells.retain(|c| c.1 == col);
+        }
         // the nearest row in that direction with something in it, else
         // round to the farthest one the other way
         let ahead = |r: i32| if step < 0 { r < row } else { r > row };
@@ -269,7 +273,7 @@ impl Game {
             .filter(|&r| ahead(r))
             .min_by_key(|&r| (r - row).abs())
             .or_else(|| cells.iter().map(|c| c.0).filter(|&r| r != row).max_by_key(|&r| (r - row).abs()));
-        let Some(target_row) = target_row else { return false };
+        let Some(target_row) = target_row else { return true };
         let Some(&(_, _, next)) = cells.iter().filter(|c| c.0 == target_row).min_by_key(|c| ((c.1 - col).abs(), c.1)) else { return false };
         self.set_window_pick(next);
         true
