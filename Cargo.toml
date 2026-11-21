@@ -26,9 +26,10 @@ opt-level = 2
 debug = 1
 
 # the system's MIDI synthesizer (music without a SoundFont), and the
-# desktop's refresh to pace the pictures by (DwmFlush)
+# desktop's refresh to pace the pictures by (DwmFlush), and a message box
+# when the game cannot start or crashes
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_Media_Audio", "Win32_Media", "Win32_Graphics_Dwm"] }
+windows-sys = { version = "0.52", features = ["Win32_Media_Audio", "Win32_Media", "Win32_Graphics_Dwm", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 # Held at versions that still link through import libraries: the newer
 # ones need dlltool with an assembler, which the GNU toolchain lacks.
 libloading = "=0.8.6"

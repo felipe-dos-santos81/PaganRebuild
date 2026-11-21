@@ -48,12 +48,46 @@ pub fn install(dir: PathBuf) {
         let thread = std::thread::current();
         let trace = std::backtrace::Backtrace::force_capture().to_string();
         let text = entry(seconds, thread.name(), what.as_deref(), at.as_deref(), moment, &trace);
-        match append(&dir, &text) {
-            Ok(path) => eprintln!("the crash was written to {}", path.display()),
-            Err(err) => eprintln!("the crash log could not be written: {err}"),
+        let written = match append(&dir, &text) {
+            Ok(path) => {
+                eprintln!("the crash was written to {}", path.display());
+                format!("Details were written to {}", path.display())
+            }
+            Err(err) => {
+                eprintln!("the crash log could not be written: {err}");
+                String::new()
+            }
+        };
+        // started from the Explorer, the console closes with the program:
+        // without the box the game would just vanish. Only for the main
+        // thread: a helper thread failing must not stop the game with it.
+        if thread.name() == Some("main") {
+            message(&format!("PaganRebuild crashed.
+
+{}
+
+{written}", what.as_deref().unwrap_or("(no message)")));
         }
     }));
 }
+
+/// Shows a message in a box of the system, and waits until it is closed:
+/// for failures, which the console would otherwise take away with it when
+/// the program was started by a double click.
+#[cfg(windows)]
+pub fn message(text: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (text, title) = (wide(text), wide("PaganRebuild"));
+    // SAFETY: both strings end with a 0 and live until the box is closed
+    unsafe {
+        MessageBoxW(0, text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+    }
+}
+
+/// (Elsewhere the message is on the console only.)
+#[cfg(not(windows))]
+pub fn message(_text: &str) {}
 
 /// One entry of the log.
 fn entry(seconds: u64, thread: Option<&str>, what: Option<&str>, at: Option<&str>, moment: Option<Moment>, trace: &str) -> String {

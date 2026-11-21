@@ -442,11 +442,19 @@ fn main() {
             std::process::exit(if msg.is_empty() { 0 } else { 2 });
         }
     };
+    let windowed = args.screenshot.is_none();
     let result = run(args);
     // an autosave still being written must not be cut off
     savegame::wait_for_saves();
     if let Err(e) = result {
         eprintln!("error: {e}");
+        // started by a double click, the console closes at once: the
+        // player would see the game vanish without a word
+        if windowed {
+            crash::message(&format!("PaganRebuild could not start.
+
+{e}"));
+        }
         std::process::exit(1);
     }
 }
