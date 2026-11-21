@@ -235,7 +235,7 @@ impl Play {
         let (w, h) = (surf.width as usize, surf.height as usize);
         WINDOW_FACTOR.store(factor as u32, std::sync::atomic::Ordering::Relaxed);
         // the pictures are paced by the screen itself (see platform.rs)
-        let mut window = Window::new("PaganRebuild", w * factor, h * factor)?;
+        let mut window = Window::new("PaganRebuild", w * factor, h * factor, args.window)?;
         let mouse_pointer = cursor::Cursor::load(&game.data.static_dir);
         window.set_cursor_visibility(!mouse_pointer.available());
         let pacer = Pacer::new(window.refresh_period());
@@ -1521,7 +1521,14 @@ impl Play {
         if self.dirty || game.camera_gliding() || game.ui.notice.is_some() || game.turn.turning() {
             game.draw(&mut self.surf, &mut self.opts, self.roofs_always);
             let a = game.avatar();
-            self.window.set_title(&format!("PaganRebuild - map {} - {},{},{}", game.cur_map, a.x, a.y, a.z));
+            let mut title = format!("PaganRebuild - map {} - {},{},{}", game.cur_map, a.x, a.y, a.z);
+            // with --window (for videos): the size the window really has, so
+            // that one sees whether it is still the size asked for
+            if self.args.window.is_some() {
+                let (w, h) = self.window.pixel_size();
+                title += &format!(" - {w}x{h}");
+            }
+            self.window.set_title(&title);
             self.dirty = false;
             // the last pictures drawn (five seconds of movement, less when
             // zoomed out) are kept, to be written out with F3

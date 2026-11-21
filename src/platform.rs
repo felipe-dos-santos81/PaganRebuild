@@ -537,12 +537,15 @@ pub struct Window {
 }
 
 impl Window {
-    /// Opens a window of `w` x `h` screen pixels.
-    pub fn new(title: &str, w: usize, h: usize) -> Result<Window, String> {
+    /// Opens a window of `w` x `h` screen pixels, or of the size `screen`
+    /// asks for (`--window`, for videos): the game still counts in `w` x `h`
+    /// then, and the picture is fitted into the window as after resizing it.
+    pub fn new(title: &str, w: usize, h: usize, screen: Option<(u32, u32)>) -> Result<Window, String> {
         let events = EventLoop::new().map_err(|e| format!("no event loop: {e}"))?;
+        let (sw, sh) = screen.unwrap_or((w as u32, h as u32));
         let app = App {
             title: title.to_string(),
-            size: PhysicalSize::new(w as u32, h as u32),
+            size: PhysicalSize::new(sw, sh),
             window: None,
             gpu: None,
             error: None,

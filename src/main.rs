@@ -107,6 +107,8 @@ usage: PaganRebuild [options]
   --pos <x,y,z>       put the Avatar at this world position
   --size <WxH>        view size in pixels (default: 640x400)
   --scale <1|2|3|4>   window scale factor (default: 2)
+  --window <WxH>      open the window with exactly this picture area in screen
+                      pixels, e.g. 2560x1440 for 16:9 videos (default: size x scale)
   --no-sound          run without sound effects, speech and music
   --no-menu           go straight into a new game: no introduction, menu or name entry
   --screenshot <png>  render one frame to a PNG file and exit
@@ -198,6 +200,9 @@ struct Args {
     pos: Option<(i32, i32, i32)>,
     size: (i32, i32),
     scale: u32,
+    /// The window's picture area in screen pixels (`--window`), instead of
+    /// the view size times the scale: for videos in a fixed format.
+    window: Option<(u32, u32)>,
     screenshot: Option<PathBuf>,
     commands: String,
     no_sound: bool,
@@ -213,6 +218,7 @@ fn parse_args() -> Result<Args, String> {
         pos: None,
         size: (640, 400),
         scale: 2,
+        window: None,
         screenshot: None,
         commands: String::new(),
         no_sound: false,
@@ -241,6 +247,13 @@ fn parse_args() -> Result<Args, String> {
                 a.size = (v[0], v[1]);
             }
             "--scale" => a.scale = val()?.parse().ok().filter(|s| (1..=4).contains(s)).ok_or("invalid scale (1, 2, 3 or 4)")?,
+            "--window" => {
+                let v: Vec<u32> = val()?.split(['x', 'X']).filter_map(|s| s.trim().parse().ok()).collect();
+                if v.len() != 2 || v[0] < 320 || v[1] < 200 {
+                    return Err("--window expects WxH, at least 320x200".into());
+                }
+                a.window = Some((v[0], v[1]));
+            }
             "--screenshot" => a.screenshot = Some(val()?.into()),
             "--do" => a.commands = val()?,
             "--no-sound" => a.no_sound = true,
