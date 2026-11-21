@@ -191,7 +191,14 @@ pub fn apply(surf: &mut Surface, ids: &[u32], painted: &[Painted], map: &MapData
         let Some(info) = infos.get(under.shape as usize) else { return NONE };
         if under.is_actor() { NONE } else { under.z + info.z * 8 }
     };
+    lay(&mut surf.pixels, w, h, &casters, &top_at, sun);
+}
 
+/// Lays the shadows of the figures onto a picture of `w` x `h` pixels;
+/// `top_at`: the height of the ground drawn at a pixel (NONE where there
+/// is none). Only done where the shadows fall: the test compares it with
+/// the plain way over the whole picture.
+fn lay<F: Fn(usize) -> i32 + Sync>(pixels: &mut [u32], w: i32, h: i32, casters: &[Caster], top_at: &F, sun: Sun) {
     // the pixels in shadow, figure by figure
     let found: Mutex<Vec<u32>> = Mutex::new(Vec::new());
     crate::pool::run(casters.len(), &|i| {
@@ -278,7 +285,7 @@ pub fn apply(surf: &mut Surface, ids: &[u32], painted: &[Painted], map: &MapData
             row[x] = c;
         }
     });
-    let rows = &mut surf.pixels[y0 as usize * w as usize..(y1 as usize + 1) * w as usize];
+    let rows = &mut pixels[y0 as usize * w as usize..(y1 as usize + 1) * w as usize];
     let parts: Vec<&mut [u32]> = rows.chunks_mut(w as usize).collect();
     crate::pool::each(parts, |by, row| {
         let line = (y0 as usize + by) * w as usize;
@@ -305,7 +312,7 @@ pub fn apply(surf: &mut Surface, ids: &[u32], painted: &[Painted], map: &MapData
 
 #[cfg(test)]
 mod tests {
-    use super::Sun;
+    use super::*;
 
     #[test]
     fn the_sun_moves_smoothly() {
@@ -322,5 +329,117 @@ mod tests {
         assert!(Sun::at(23.0).dark < Sun::at(12.0).dark);
         // in the morning to the right and up (north-east), in the evening right and down (south-east)
         assert!(Sun::at(7.0).down < Sun::at(17.0).down);
+    }
+
+    /// The shadows done the plain way, over the whole picture: the tops of
+    /// every pixel known, the shadows marked, then for every pixel the
+    /// count of the 3 x 3 around it.
+    fn whole_picture(pixels: &mut [u32], w: i32, h: i32, tops: &[i32], casters: &[Caster], sun: Sun) {
+        let mut shade = vec![false; (w * h) as usize];
+        for c in casters {
+            let f = c.frame;
+            let Some(lowest) = (0..f.height).rev().find(|&r| (0..f.width).any(|col| f.pixels[(r * f.width + col) as usize] != TRANSPARENT)) else { continue };
+            for row in 0..=lowest {
+                let z = c.z + (lowest - row);
+                for col in 0..f.width {
+                    if f.pixels[(row * f.width + col) as usize] == TRANSPARENT {
+                        continue;
+                    }
+                    let x = if c.flipped { c.sx + f.xoff - 1 - col } else { c.sx - f.xoff + col };
+                    let y = c.sy - f.yoff + row;
+                    let mut g = c.z;
+                    for _ in 0..3 {
+                        let above = z - g;
+                        if above < 0 {
+                            break;
+                        }
+                        let (qx, qy) = (x + (above as f32 * sun.across).round() as i32, y + (above as f32 * sun.down).round() as i32);
+                        if qx < 0 || qy < 0 || qx >= w || qy >= h {
+                            break;
+                        }
+                        let t = tops[(qy * w + qx) as usize];
+                        if t == NONE {
+                            break;
+                        }
+                        if (t - g).abs() <= NEAR_Z {
+                            shade[(qy * w + qx) as usize] = true;
+                            break;
+                        }
+                        g = t;
+                    }
+                }
+            }
+        }
+        let lit = |x: i32, y: i32| (x >= 0 && y >= 0 && x < w && y < h && shade[(y * w + x) as usize]) as u32;
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) as usize;
+                let mut count = 0;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        count += lit(x + dx, y + dy);
+                    }
+                }
+                if count == 0 || tops[i] == NONE {
+                    continue;
+                }
+                let k = 1.0 - sun.dark * count as f32 / 9.0;
+                let ch = |v: u32| (v as f32 * k) as u32;
+                let px = &mut pixels[i];
+                *px = (ch((*px >> 16) & 0xFF) << 16) | (ch((*px >> 8) & 0xFF) << 8) | ch(*px & 0xFF);
+            }
+        }
+    }
+
+    /// Done only where the shadows fall, the picture comes out the same as
+    /// done over the whole of it: figures at the edges and corners, half
+    /// out of the picture, on steps up and down, over holes (no ground),
+    /// far apart, all through the day.
+    #[test]
+    fn only_where_they_fall_same_as_whole_picture() {
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut rnd = |n: u32| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % n as u64) as i32
+        };
+        let (w, h) = (96, 64);
+        let mut drawn = 0;
+        for round in 0..300 {
+            // the ground: patches at different heights, some holes
+            let mut tops = vec![0i32; (w * h) as usize];
+            for _ in 0..12 {
+                let (px, py, pw, ph) = (rnd(w as u32), rnd(h as u32), 4 + rnd(30), 4 + rnd(20));
+                let z = [NONE, 4, 24, -16][rnd(4) as usize];
+                for y in py..(py + ph).min(h) {
+                    for x in px..(px + pw).min(w) {
+                        tops[(y * w + x) as usize] = z;
+                    }
+                }
+            }
+            let frames: Vec<Frame> = (0..1 + rnd(4))
+                .map(|_| {
+                    let (fw, fh) = (3 + rnd(10), 6 + rnd(30));
+                    let pixels = (0..fw * fh).map(|_| if rnd(4) == 0 { TRANSPARENT } else { 7 }).collect();
+                    Frame { width: fw, height: fh, xoff: rnd(fw as u32), yoff: fh - 1, pixels }
+                })
+                .collect();
+            let casters: Vec<Caster> = frames
+                .iter()
+                .map(|f| Caster { frame: f, sx: rnd(w as u32 + 20) - 10, sy: rnd(h as u32 + 20) - 10, flipped: rnd(2) == 0, z: [0, 4, 24][rnd(3) as usize] })
+                .collect();
+            let sun = Sun::at(rnd(24 * 60) as f32 / 60.0);
+            let picture: Vec<u32> = (0..w * h).map(|_| rnd(0x100_0000) as u32).collect();
+
+            let mut want = picture.clone();
+            whole_picture(&mut want, w, h, &tops, &casters, sun);
+            let mut got = picture.clone();
+            lay(&mut got, w, h, &casters, &|q: usize| tops[q], sun);
+            assert!(got == want, "round {round}: the pictures differ");
+            drawn += (want != picture) as usize;
+        }
+        // most rounds have shadows to compare
+        assert!(drawn > 200, "shadows in only {drawn} rounds");
     }
 }
