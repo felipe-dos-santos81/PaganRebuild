@@ -469,8 +469,31 @@ pub struct Game {
     pub data: crate::gamedata::GameData,
 }
 
+/// The language of the game's data, as its first letter (E, G, F ...).
+/// The GOG version has a folder for each language (ENGLISH, GERMAN ...);
+/// other versions keep the data in the game folder itself, whatever it is
+/// called (ULTIMA8 ...): there the usecode file tells it (GUSECODE.FLX is
+/// German; the German version has EUSECODE.FLX beside it as well).
+fn language_of(lang_dir: &Path, uc_dir: &Path) -> char {
+    const LANGUAGES: [&str; 5] = ["ENGLISH", "GERMAN", "FRENCH", "SPANISH", "JAPANESE"];
+    let name = lang_dir.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_ascii_uppercase();
+    if LANGUAGES.contains(&name.as_str()) {
+        return name.chars().next().unwrap_or('E');
+    }
+    let mut found: Vec<char> = std::fs::read_dir(uc_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().map(str::to_ascii_uppercase))
+        .filter_map(|n| n.strip_suffix("USECODE.FLX").filter(|l| l.len() == 1).and_then(|l| l.chars().next()))
+        .collect();
+    found.sort_by_key(|&c| (c == 'E', c));
+    found.first().copied().unwrap_or('E')
+}
+
 impl Game {
-    /// `lang_dir`: the language folder of the game (ENGLISH, GERMAN ...).
+    /// `lang_dir`: the language folder of the game (ENGLISH, GERMAN ...),
+    /// or the game folder itself when the data lie in it directly.
     /// `sound`: open the sound devices (off for tests without a window).
     pub fn load(lang_dir: &Path, sound: bool) -> Result<Game, Box<dyn Error>> {
         let stat = lang_dir.join("STATIC");
@@ -491,7 +514,7 @@ impl Game {
 
         // the usecode file is named after the language: EUSECODE, GUSECODE ...
         let uc_dir = lang_dir.join("USECODE");
-        let initial = lang_dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.chars().next()).unwrap_or('E');
+        let initial = language_of(lang_dir, &uc_dir);
         let uc_path = [format!("{initial}USECODE.FLX"), "EUSECODE.FLX".to_string()]
             .iter()
             .map(|n| uc_dir.join(n))
@@ -2171,5 +2194,31 @@ mod tests {
             assert!(now < t + Duration::from_secs(2));
         }
         assert_eq!((g.at.0, g.at.1), (40.0, 40.0));
+    }
+
+    /// The language of a game folder: by its name (ENGLISH, GERMAN ...),
+    /// or, where the data lie in the game folder itself, by its usecode.
+    #[test]
+    fn language_of_folder() {
+        let base = std::env::temp_dir().join(format!("pagan-lang-{}", std::process::id()));
+        let folder = |name: &str, files: &[&str]| {
+            let dir = base.join(name);
+            std::fs::create_dir_all(dir.join("USECODE")).unwrap();
+            for f in files {
+                std::fs::write(dir.join("USECODE").join(f), b"").unwrap();
+            }
+            let lang = super::language_of(&dir, &dir.join("USECODE"));
+            std::fs::remove_dir_all(&dir).unwrap();
+            lang
+        };
+        // the GOG version: the folder says it (the German one has both files)
+        assert_eq!(folder("GERMAN", &["EUSECODE.FLX", "GUSECODE.FLX"]), 'G');
+        assert_eq!(folder("ENGLISH", &["EUSECODE.FLX"]), 'E');
+        // other versions: the usecode says it, whatever the folder's name
+        assert_eq!(folder("ULTIMA8", &["EUSECODE.FLX", "GUSECODE.FLX"]), 'G');
+        assert_eq!(folder("Ultima 8", &["FUSECODE.FLX"]), 'F');
+        assert_eq!(folder("EA Games", &["EUSECODE.FLX", "UNKCOFF.DAT"]), 'E');
+        assert_eq!(folder("empty", &[]), 'E');
+        let _ = std::fs::remove_dir(&base);
     }
 }

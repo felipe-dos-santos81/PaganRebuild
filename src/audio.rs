@@ -1009,7 +1009,7 @@ impl Audio {
             requested: 0,
             fighting: false,
             volumes,
-            album_files: sound_dir.parent().and_then(Path::parent).map(crate::album::find).unwrap_or_default(),
+            album_files: sound_dir.parent().map(crate::album::find).unwrap_or_default(),
             album: None,
             album_on: album,
             log: Vec::new(),

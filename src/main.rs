@@ -101,8 +101,8 @@ const USAGE: &str = "\
 PaganRebuild - Ultima VIII engine (work in progress)
 
 usage: PaganRebuild [options]
-  --game <dir>        game folder (contains ENGLISH/, GERMAN/ ...); default: search upwards
-  --lang <name>       language folder to use (default: ENGLISH)
+  --game <dir>        game folder (contains ENGLISH/, GERMAN/ ... or STATIC/ itself); default: search upwards
+  --lang <name>       language folder to use (default: ENGLISH; ignored when STATIC/ is in the game folder itself)
   --map <n>           put the Avatar on this map
   --pos <x,y,z>       put the Avatar at this world position
   --size <WxH>        view size in pixels (default: 640x400)
@@ -266,14 +266,27 @@ fn parse_args() -> Result<Args, String> {
     Ok(a)
 }
 
-/// Looks for the game folder in the current directory and its parents,
-/// then in the program's folder and its parents.
+/// The language folder of the game in `dir`: the folder of the language
+/// asked for (`ENGLISH`, `GERMAN` ...), as the GOG version has them, or
+/// the game folder itself when its data lie in it directly
+/// (`ULTIMA8\STATIC\...`, as other versions install the game).
+fn lang_dir_in(dir: &Path, lang: &str) -> Option<PathBuf> {
+    let has_data = |d: &Path| d.join("STATIC").join("U8SHAPES.FLX").is_file();
+    let sub = dir.join(lang);
+    if has_data(&sub) {
+        return Some(sub);
+    }
+    has_data(dir).then(|| dir.to_path_buf())
+}
+
+/// Looks for the game's language folder in the current directory and its
+/// parents, then in the program's folder and its parents.
 fn find_game(lang: &str) -> Option<PathBuf> {
     let starts = std::env::current_dir().ok().into_iter().chain(exe_dir());
     for mut dir in starts {
         loop {
-            if dir.join(lang).join("STATIC").join("U8SHAPES.FLX").is_file() {
-                return Some(dir);
+            if let Some(found) = lang_dir_in(&dir, lang) {
+                return Some(found);
             }
             if !dir.pop() {
                 break;
@@ -354,11 +367,17 @@ fn zoomed(surf: &Surface, factor: i32) -> Surface {
 
 /// Starts a game from the beginning, as the command line asks for it.
 fn new_game(args: &Args) -> Result<Game, Box<dyn Error>> {
-    let game_dir = match args.game.clone().or_else(|| find_game(&args.lang)) {
-        Some(d) => d,
-        None => return Err("game folder not found - pass it with --game <dir>".into()),
+    let lang_dir = match &args.game {
+        Some(dir) => lang_dir_in(dir, &args.lang).ok_or(format!(
+            "no Ultima 8 data in {}: neither {}/STATIC/U8SHAPES.FLX nor STATIC/U8SHAPES.FLX is there",
+            dir.display(),
+            args.lang
+        ))?,
+        None => find_game(&args.lang).ok_or(
+            "Ultima 8 not found. Put the PaganRebuild folder into the Ultima 8 folder \
+             (the one with ENGLISH or STATIC in it), or start it with --game <folder>.",
+        )?,
     };
-    let lang_dir = game_dir.join(&args.lang);
     let mut game = Game::load(&lang_dir, (args.screenshot.is_none() || crate::debug::env().sound) && !args.no_sound).map_err(|e| format!("{}: {e}", lang_dir.display()))?;
 
     if args.map.is_some() || args.pos.is_some() {

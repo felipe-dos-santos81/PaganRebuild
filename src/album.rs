@@ -189,8 +189,10 @@ fn fill_in(mut found: HashMap<i32, PathBuf>) -> HashMap<i32, PathBuf> {
 }
 
 /// Looks for the album: in %APPDATA%\paganlbum, then in the folders of
-/// the game folder; the folder with the most pieces wins.
-pub fn find(game_dir: &Path) -> HashMap<i32, PathBuf> {
+/// the game folder; the folder with the most pieces wins. `lang_dir`: the
+/// language folder (ENGLISH ...), or the game folder itself when the data
+/// lie in it directly: the album is looked for in it and beside it.
+pub fn find(lang_dir: &Path) -> HashMap<i32, PathBuf> {
     let mut dirs = Vec::new();
     if let Some(dir) = crate::user_dir() {
         dirs.push(dir.join("album"));
@@ -198,7 +200,7 @@ pub fn find(game_dir: &Path) -> HashMap<i32, PathBuf> {
     // folders in the game folder, and next to the program (when it has a
     // folder of its own inside the game folder or elsewhere)
     let exe = crate::exe_dir();
-    for base in std::iter::once(game_dir.to_path_buf()).chain(exe) {
+    for base in std::iter::once(lang_dir.to_path_buf()).chain(lang_dir.parent().map(Path::to_path_buf)).chain(exe) {
         if let Ok(entries) = std::fs::read_dir(&base) {
             dirs.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
         }
