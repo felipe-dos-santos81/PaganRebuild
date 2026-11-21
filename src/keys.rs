@@ -51,6 +51,19 @@ impl Game {
         self.ui.keys_carried = Some(carried.into_iter().map(|c| c.0).collect());
     }
 
+    /// The key ring's picture shows how many keys hang on it (one to four
+    /// and more), as its script sets it when a key is used on the ring.
+    /// Keys that come onto it otherwise (dropped onto it, or by
+    /// themselves) change it the same way.
+    pub fn show_keys_on_ring(&mut self, ring: u16) {
+        if self.map().get(ring).is_none_or(|r| r.shape != KEYRING) {
+            return;
+        }
+        let keys = self.map().items.iter().filter(|it| !it.gone && it.parent == ring && it.shape == KEY).count();
+        let frame = keys.min(4) as u32;
+        self.with_item_pub(ring, |r| r.frame = r.frame.max(frame));
+    }
+
     /// The key ring the Avatar carries (also in a bag in the backpack).
     pub fn key_ring(&self) -> Option<u16> {
         self.map().items.iter().find(|it| !it.gone && it.shape == KEYRING && it.parent != 0 && self.root_container(it.id) == AVATAR).map(|it| it.id)

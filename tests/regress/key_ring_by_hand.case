@@ -1,0 +1,9 @@
+# Keys used on the key ring go onto it one after the other (no limit of room), its picture one step further for each, up to four; dropped onto it, a key goes on as well
+args: --map 3 --pos 14700,5700,8
+do: option:better_inventory,off;pack:79;pack:82,0,31;pack:82,0,32;pack:82,0,33;pack:82,0,34;pack:82,0,35;pack:82,0,36;t5;useon:20312,20311;useon:20313,20311;useon:20314,20311;useon:20315,20311;useon:20316,20311;packin:20317,20311;find:82
+expect: useon:20312,20311: (frame, quality) Some((0, 0)) -> Some((1, 0))
+expect: useon:20313,20311: (frame, quality) Some((1, 0)) -> Some((2, 0))
+expect: useon:20314,20311: (frame, quality) Some((2, 0)) -> Some((3, 0))
+expect: useon:20315,20311: (frame, quality) Some((3, 0)) -> Some((4, 0))
+expect: useon:20316,20311: (frame, quality) Some((4, 0)) -> Some((4, 0))
+expect: q 36 npc 0 map 3 parent 20311

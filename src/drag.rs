@@ -163,6 +163,7 @@ impl Game {
         it.y = (gx.clamp(0, 255)) | (gy.clamp(0, 255) << 8);
         it.z = 0;
         it.flags |= FLG_CONTAINED;
+        self.show_keys_on_ring(container);
         // taken off a pressure plate (or anything that noticed it lying there)
         if self.touching.contains_key(&id) {
             self.touch_items(id, 0);

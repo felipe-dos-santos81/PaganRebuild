@@ -397,8 +397,11 @@ impl Game {
                 return Err("heavy");
             }
         }
-        // bodies and the Avatar himself hold whatever is put there
-        if !c.is_actor() {
+        // bodies and the Avatar himself hold whatever is put there, and the
+        // key ring any number of keys (its script puts them on without
+        // looking at the room, which by the data would be one key)
+        let key_on_ring = c.shape == crate::controls::KEYRING && self.map().get(id).is_some_and(|it| it.shape == crate::keys::KEY);
+        if !c.is_actor() && !key_on_ring {
             let capacity = self.data.infos.get(c.shape as usize).map_or(32, |si| if si.raw[7] == 0 { 32 } else { si.raw[7] as i32 });
             let used: i32 = self.map().items.iter().filter(|i| !i.gone && i.parent == container && i.id != id && i.id != 0).map(|i| self.volume(i.id)).sum();
             if used + self.volume(id) > capacity {

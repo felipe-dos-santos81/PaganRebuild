@@ -1,0 +1,6 @@
+# Better inventory: two keys that come at once both go onto the key ring by themselves, and the ring's picture shows two keys, as when they are put on by hand
+args: --map 3 --pos 14700,5700,8
+do: option:better_inventory,on;pack:79;t10;pack:82,0,31;pack:82,0,32;t10;find:82;item:20311
+expect: q 31 npc 0 map 3 parent 20311
+expect: q 32 npc 0 map 3 parent 20311
+expect: id 20311 shape   79 frame   2
