@@ -12,7 +12,7 @@ Project page: https://scareglow23.github.io/PaganRebuild/
 2. Extract it into the Ultima 8 folder (where `ENGLISH\` is).
 3. Run `PaganRebuild\PaganRebuild.exe` (German version: `--lang german`, French: `--lang french`).
 
-Windows 64-bit. Linux and macOS are not tested yet. Savegames and settings are kept in `%APPDATA%\pagan`.
+Windows 64-bit. macOS on Apple Silicon is built from the source (see Building); Linux is not tested yet. Savegames and settings are kept in `%APPDATA%\pagan` (on a Mac: `~/Library/Application Support/pagan`).
 
 ## Album music (optional)
 
@@ -35,6 +35,15 @@ cargo build --release
 ```
 
 The program is `target/release/PaganRebuild.exe`. It finds the game data by looking in the folders above it; otherwise give the folder with `--game <dir>`. All options: `PaganRebuild --help`.
+
+On a Mac with Apple Silicon the window is opened by SDL3:
+
+```
+brew install sdl3 pkg-config
+make run game="<folder with ENGLISH/>"
+```
+
+The game starts in a window, and the mouse pointer can leave it at any time. `make help` lists the other targets. Plain `cargo build --release` works on a Mac too; it opens the window with winit instead of SDL.
 
 ## Credits
 

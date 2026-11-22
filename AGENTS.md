@@ -8,7 +8,7 @@ PaganRebuild is an engine for Ultima VIII: Pagan written in Rust. It reads the o
 - Game data: `flex.rs` (FLX archives), `shape.rs`, `palette.rs`, `map.rs`, `gamedata.rs`, `usecode.rs`, `save.rs`, `anim.rs`, `font.rs`, `movie.rs`.
 - Running the game: `game.rs` (world state), `vm.rs` (usecode virtual machine), `intrinsics.rs` (engine functions the scripts call), `effects.rs`, `eggs.rs`, `actor.rs`, `path.rs`, `combat.rs`, `magic.rs`, `jump.rs`, `vitals.rs`, `savegame.rs`.
 - Picture: `view.rs`, `sorter.rs` (paint order), `turnview.rs`, `lighting.rs`, `shadows.rs`, `silhouette.rs`, `xbr.rs`, `gpuscale.rs`, `upscale.rs`, `display.rs`.
-- Window, input and screens: `platform.rs`, `play.rs` (main loop), `controls.rs` (modern controls), `bindings.rs` (key and gamepad assignment), `menu.rs` (options menu), `title.rs`, `slots.rs` (savegame book), `ui.rs`, `gumps.rs`, `inventory.rs`, `drag.rs`.
+- Window, input and screens: `platform.rs` (the window as the game sees it; `platform/winit.rs` or, with the feature `sdl`, `platform/sdl.rs` opens it), `play.rs` (main loop), `controls.rs` (modern controls), `bindings.rs` (key and gamepad assignment), `menu.rs` (options menu), `title.rs`, `slots.rs` (savegame book), `ui.rs`, `gumps.rs`, `inventory.rs`, `drag.rs`.
 - Sound: `audio.rs` (effects, speech, MIDI music with a SoundFont), `soundfix.rs`, `album.rs` (album music from Ogg/WAV files).
 - Optional helpers: `minimap.rs`, `worldmap.rs`, `guide.rs`, `places.rs`, `journal.rs`, `quests.rs`, `puzzles.rs`, `hover.rs`, `sleep.rs`, `spellnotes.rs` and others; most files start with a `//!` line saying what they do.
 - `src/testcmd/`: the test commands of `--do`.
@@ -21,7 +21,8 @@ PaganRebuild is an engine for Ultima VIII: Pagan written in Rust. It reads the o
 
 - Rust stable. On Windows the GNU toolchain (`stable-x86_64-pc-windows-gnu`) without MSVC build tools: do not add crates that compile C or C++ code.
 - Some crates are pinned in `Cargo.toml` because newer versions do not link with this toolchain; keep the pins.
-- `cargo clippy --all-targets` should stay free of warnings. `clippy.toml` forbids the standard `HashMap`/`HashSet` constructors: use `crate::hash::HashMap` with `HashMap::default()`, so that the game runs the same way every time.
+- The cargo feature `sdl` opens the window and reads the input through SDL3 instead of winit (`Makefile`: the build on a Mac; it needs `brew install sdl3 pkg-config`). SDL3 is linked from the system, found with pkg-config. The default build must stay free of `sdl3`: `cargo tree -e normal | grep -c sdl3` prints 0. The SDL window never holds the mouse pointer (no mouse grab, no relative mouse mode).
+- `cargo clippy --all-targets` should stay free of warnings; after a change to the window code also `cargo clippy --all-targets --features sdl` (`make lint` runs both). `clippy.toml` forbids the standard `HashMap`/`HashSet` constructors: use `crate::hash::HashMap` with `HashMap::default()`, so that the game runs the same way every time.
 
 ## Game data
 
