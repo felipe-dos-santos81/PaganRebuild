@@ -93,6 +93,14 @@ fn key(input: &mut Input, key_map: &KeyMap, scancode: Option<Scancode>, keycode:
     key_of(scancode, keycode).is_some_and(|raw| input.key(raw, pressed, repeat, key_map))
 }
 
+/// What SDL is told before it starts.
+fn set_hints() {
+    // A held key repeats. Left alone, macOS opens its menu of accented
+    // letters over the game when A or S is held, and the Avatar walks with
+    // held keys.
+    sdl3::hint::set("SDL_MAC_PRESS_AND_HOLD", "0");
+}
+
 /// The window and its events.
 pub struct Backend {
     /// What the window's events left behind since the last look.
@@ -111,6 +119,7 @@ impl Backend {
     /// Opens the window with a picture area of `size` screen pixels.
     pub fn new(title: &str, size: (u32, u32), fullscreen: bool) -> Result<Backend, String> {
         // only SDL's video part: the gamepads stay with gilrs, the sound with rodio
+        set_hints();
         let sdl = sdl3::init().map_err(|e| format!("no SDL: {e}"))?;
         let video = sdl.video().map_err(|e| format!("no SDL video: {e}"))?;
         let mut builder = video.window(title, size.0, size.1);
@@ -260,6 +269,14 @@ mod tests {
         assert_eq!(key_of(None, Some(Keycode::Apostrophe)), Some(Key::Apostrophe));
         assert_eq!(key_of(None, Some(Keycode::PlusMinus)), None);
         assert_eq!(key_of(None, None), None);
+    }
+
+    #[test]
+    fn holding_a_key_repeats_it() {
+        // not the menu of accented letters macOS would open over the game
+        // for a held A or S (the Avatar walks with held keys)
+        set_hints();
+        assert_eq!(sdl3::hint::get("SDL_MAC_PRESS_AND_HOLD").as_deref(), Some("0"));
     }
 
     #[test]

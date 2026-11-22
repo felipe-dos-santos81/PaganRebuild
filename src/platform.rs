@@ -245,6 +245,8 @@ struct Input {
     /// The keys held and what they were taken for (see `App::key_map`),
     /// so that letting go lets go of the same key.
     held_as: crate::hash::HashMap<Key, Key>,
+    /// The window has the keyboard (it is the one in front).
+    focused: bool,
     /// When the window last got the focus back: a click right after it is
     /// the one that brought the window to the front, not meant for the game.
     focused_at: Option<std::time::Instant>,
@@ -319,8 +321,25 @@ impl Input {
         }
     }
 
+    /// The pad's stick pushes the pointer by window pixels, in a window of
+    /// this size. Gives the pointer's new place, or None when it stays
+    /// where it is.
+    fn push_pointer(&mut self, dx: f64, dy: f64, size: (u32, u32)) -> Option<(f64, f64)> {
+        // with another program in front the pointer is that program's: a
+        // stick still pushed must not pull it back into the game
+        if !self.focused {
+            return None;
+        }
+        let x = (self.mouse.0 + dx).clamp(0.0, size.0.saturating_sub(1) as f64);
+        let y = (self.mouse.1 + dy).clamp(0.0, size.1.saturating_sub(1) as f64);
+        self.mouse = (x, y);
+        self.inside = true;
+        Some(self.mouse)
+    }
+
     /// The window got the keyboard (true) or lost it.
     fn focus(&mut self, gained: bool) {
+        self.focused = gained;
         if gained {
             self.focused_at = Some(std::time::Instant::now());
         } else {
@@ -461,15 +480,13 @@ impl Window {
         self.pad_held.contains(&p) || self.pad_events.contains(&(p, true))
     }
 
-    /// Moves the pointer by window pixels (the pad's right stick).
+    /// Moves the pointer by window pixels (the pad's right stick), while
+    /// the window is the one in front.
     pub fn move_pointer(&mut self, dx: f64, dy: f64) {
         let size = self.backend.pixel_size();
-        let input = &mut self.backend.input;
-        let x = (input.mouse.0 + dx).clamp(0.0, (size.0 - 1) as f64);
-        let y = (input.mouse.1 + dy).clamp(0.0, (size.1 - 1) as f64);
-        input.mouse = (x, y);
-        input.inside = true;
-        self.backend.warp_pointer(x, y);
+        if let Some((x, y)) = self.backend.input.push_pointer(dx, dy, size) {
+            self.backend.warp_pointer(x, y);
+        }
     }
 
     /// The window's size in its pixels.
@@ -740,6 +757,20 @@ mod tests {
         assert!(!input.buttons[0] && !input.edges[0].pressed && !input.edges[0].released);
         input.mouse_button(0, true); // the next one counts
         assert!(input.buttons[0] && input.edges[0].pressed);
+    }
+
+    #[test]
+    fn the_stick_moves_the_pointer_only_in_the_window_in_front() {
+        let mut input = Input { mouse: (10.0, 10.0), ..Default::default() };
+        // another program is in front: the pointer is left to it
+        assert_eq!(input.push_pointer(5.0, -50.0, (100, 80)), None);
+        assert_eq!(input.mouse, (10.0, 10.0));
+        input.focus(true);
+        assert_eq!(input.push_pointer(5.0, -50.0, (100, 80)), Some((15.0, 0.0)));
+        assert_eq!(input.push_pointer(500.0, 500.0, (100, 80)), Some((99.0, 79.0)));
+        assert!(input.inside);
+        input.focus(false);
+        assert_eq!(input.push_pointer(1.0, 1.0, (100, 80)), None);
     }
 
     #[test]
