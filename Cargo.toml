@@ -18,6 +18,13 @@ winit = "0.30"
 pollster = "0.4"
 gilrs = "0.11"
 lewton = "0.10"
+# SDL3 opens the window and reports the input instead of winit (feature
+# "sdl", as the Makefile builds on a Mac). It links the system's SDL3,
+# found with pkg-config, and compiles no C code.
+sdl3 = { version = "0.22", optional = true, features = ["raw-window-handle", "use-pkg-config"] }
+
+[features]
+sdl = ["dep:sdl3"]
 
 [profile.dev]
 opt-level = 2

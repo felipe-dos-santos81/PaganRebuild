@@ -1,7 +1,8 @@
 //! The window, keyboard, mouse and picture output, for Windows, Linux and
 //! macOS alike. This file is the window as the game sees it; the window
-//! itself is opened, and its events reported, by the backend
-//! (platform/winit.rs). wgpu hands the finished pictures to the screen
+//! itself is opened, and its events reported, by the backend: winit
+//! (platform/winit.rs), or SDL3 when the program is built with the feature
+//! "sdl" (platform/sdl.rs). wgpu hands the finished pictures to the screen
 //! (Vulkan on Windows and Linux, Metal on the Mac, OpenGL where neither is
 //! there).
 //!
@@ -22,7 +23,8 @@
 
 use std::time::Duration;
 
-#[path = "platform/winit.rs"]
+#[cfg_attr(feature = "sdl", path = "platform/sdl.rs")]
+#[cfg_attr(not(feature = "sdl"), path = "platform/winit.rs")]
 mod backend;
 
 /// The keys the game knows. Letters, digits and signs follow the
