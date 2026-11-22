@@ -1,13 +1,15 @@
 //! The window, keyboard, mouse and picture output, for Windows, Linux and
-//! macOS alike: winit opens the window and reports the input, wgpu hands
-//! the finished pictures to the screen (Vulkan on Windows and Linux, Metal
-//! on the Mac, OpenGL where neither is there).
+//! macOS alike. This file is the window as the game sees it; the window
+//! itself is opened, and its events reported, by the backend
+//! (platform/winit.rs). wgpu hands the finished pictures to the screen
+//! (Vulkan on Windows and Linux, Metal on the Mac, OpenGL where neither is
+//! there).
 //!
 //! The game asks for its input the way it did with minifb: "is this key
 //! down", "was it pressed since the last picture", "where is the mouse".
 //! Here the window's events are collected and answered from that. The
 //! window is not driven by an event loop that calls the game; the game's
-//! own loop asks for the events now and then (`pump_app_events`).
+//! own loop asks for the events now and then (`Backend::pump`).
 //!
 //! The window can be resized and maximized, and Alt+Enter switches to the
 //! full screen and back. The picture keeps its proportions: it is fitted
@@ -18,16 +20,10 @@
 //! ("Fifo"), so there is no tearing line across it; handing over a picture
 //! waits for the next refresh when the previous one is still waiting.
 
-use std::sync::Arc;
 use std::time::Duration;
-use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
-use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
-use winit::window::WindowId;
+
+#[path = "platform/winit.rs"]
+mod backend;
 
 /// The keys the game knows. Letters, digits and signs follow the
 /// keyboard layout (Z is the key labelled Z, also on a German keyboard),
@@ -118,70 +114,6 @@ pub struct Edges {
     pub released: bool,
 }
 
-/// The key a key event is about.
-fn key_of(event: &winit::event::KeyEvent) -> Option<Key> {
-    use Key::*;
-    let PhysicalKey::Code(code) = event.physical_key else { return None };
-    // the number pad without NumLock: its arrows are arrows
-    if let winit::keyboard::Key::Named(named) = &event.logical_key {
-        use winit::keyboard::NamedKey as N;
-        let arrow = match named {
-            N::ArrowUp => Some(Up),
-            N::ArrowDown => Some(Down),
-            N::ArrowLeft => Some(Left),
-            N::ArrowRight => Some(Right),
-            N::PageUp => Some(PageUp),
-            N::PageDown => Some(PageDown),
-            _ => None,
-        };
-        if arrow.is_some() {
-            return arrow;
-        }
-    }
-    // keys taken by their place (the number pad gives digits as text too)
-    let by_place = match code {
-        KeyCode::F1 => Some(F1), KeyCode::F2 => Some(F2), KeyCode::F3 => Some(F3), KeyCode::F4 => Some(F4),
-        KeyCode::F5 => Some(F5), KeyCode::F6 => Some(F6), KeyCode::F7 => Some(F7), KeyCode::F8 => Some(F8),
-        KeyCode::F9 => Some(F9), KeyCode::F10 => Some(F10), KeyCode::F11 => Some(F11), KeyCode::F12 => Some(F12),
-        KeyCode::ArrowUp => Some(Up), KeyCode::ArrowDown => Some(Down),
-        KeyCode::ArrowLeft => Some(Left), KeyCode::ArrowRight => Some(Right),
-        KeyCode::PageUp => Some(PageUp), KeyCode::PageDown => Some(PageDown),
-        KeyCode::Home => Some(Home), KeyCode::End => Some(End),
-        KeyCode::Insert => Some(Insert), KeyCode::Delete => Some(Delete),
-        KeyCode::Escape => Some(Escape), KeyCode::Enter => Some(Enter), KeyCode::Space => Some(Space),
-        KeyCode::Tab => Some(Tab), KeyCode::Backspace => Some(Backspace),
-        KeyCode::ShiftLeft => Some(LeftShift), KeyCode::ShiftRight => Some(RightShift),
-        KeyCode::ControlLeft => Some(LeftCtrl), KeyCode::ControlRight => Some(RightCtrl),
-        KeyCode::AltLeft => Some(LeftAlt), KeyCode::AltRight => Some(RightAlt),
-        KeyCode::Numpad0 => Some(NumPad0), KeyCode::Numpad1 => Some(NumPad1), KeyCode::Numpad2 => Some(NumPad2),
-        KeyCode::Numpad3 => Some(NumPad3), KeyCode::Numpad4 => Some(NumPad4), KeyCode::Numpad5 => Some(NumPad5),
-        KeyCode::Numpad6 => Some(NumPad6), KeyCode::Numpad7 => Some(NumPad7), KeyCode::Numpad8 => Some(NumPad8),
-        KeyCode::Numpad9 => Some(NumPad9),
-        KeyCode::NumpadSubtract => Some(NumPadMinus), KeyCode::NumpadAdd => Some(NumPadPlus),
-        KeyCode::NumpadEnter => Some(NumPadEnter),
-        _ => None,
-    };
-    if by_place.is_some() {
-        return by_place;
-    }
-    // letters, digits, signs: what the key says without shift
-    let winit::keyboard::Key::Character(s) = event.key_without_modifiers() else { return None };
-    let c = s.chars().next()?.to_ascii_lowercase();
-    const LETTERS: [Key; 26] = [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z];
-    const DIGITS: [Key; 10] = [Key0, Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9];
-    match c {
-        'a'..='z' => Some(LETTERS[(c as u8 - b'a') as usize]),
-        '0'..='9' => Some(DIGITS[(c as u8 - b'0') as usize]),
-        ',' => Some(Comma),
-        '.' => Some(Period),
-        '-' => Some(Minus),
-        // the key right of 0/ß: "=" on English keyboards, "+" on German ones
-        '=' | '+' => Some(Equal),
-        '\'' => Some(Apostrophe),
-        _ => None,
-    }
-}
-
 /// The graphics card's side: the window's surface, and the picture as a
 /// texture drawn into the window.
 struct Gpu {
@@ -194,10 +126,10 @@ struct Gpu {
 }
 
 impl Gpu {
-    fn new(window: Arc<winit::window::Window>) -> Result<Gpu, String> {
+    fn new(backend: &backend::Backend) -> Result<Gpu, String> {
         // WGPU_BACKEND=vulkan|gl|metal picks one (for tests)
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
-        let surface = instance.create_surface(window.clone()).map_err(|e| format!("no surface: {e}"))?;
+        let surface = backend.surface(&instance)?;
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
@@ -219,12 +151,12 @@ impl Gpu {
         let caps = surface.get_capabilities(&adapter);
         // the pixels are sRGB already: a format that would convert them again is avoided
         let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).unwrap_or(caps.formats[0]);
-        let size = window.inner_size();
+        let size = backend.pixel_size();
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: size.0,
+            height: size.1,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: crate::debug::env().latency.unwrap_or(1),
             alpha_mode: caps.alpha_modes[0],
@@ -235,10 +167,10 @@ impl Gpu {
         Ok(Gpu { surface, device, queue, config, scaler })
     }
 
-    fn resize(&mut self, size: PhysicalSize<u32>) {
-        if size.width > 0 && size.height > 0 && (size.width, size.height) != (self.config.width, self.config.height) {
-            self.config.width = size.width;
-            self.config.height = size.height;
+    /// The window's size in screen pixels, as it is now.
+    fn resize(&mut self, size: (u32, u32)) {
+        if size.0 > 0 && size.1 > 0 && size != (self.config.width, self.config.height) {
+            (self.config.width, self.config.height) = size;
             self.surface.configure(&self.device, &self.config);
         }
     }
@@ -318,160 +250,82 @@ struct Input {
     swallowed: [bool; 3],
 }
 
-/// The part winit calls with the events.
-struct App {
-    title: String,
-    size: PhysicalSize<u32>,
-    window: Option<Arc<winit::window::Window>>,
-    gpu: Option<Gpu>,
-    error: Option<String>,
-    input: Input,
-    /// Keys that do what another key does (the player's own key bindings);
-    /// None: the key does nothing.
-    key_map: crate::hash::HashMap<Key, Option<Key>>,
-}
-
-impl App {
-    /// A key pressed or let go: typed text, the key as the game sees it
-    /// (after the key map), Alt+Enter for the full screen.
-    fn keyboard_input(&mut self, event: &winit::event::KeyEvent) {
-        let input = &mut self.input;
-        if event.state == ElementState::Pressed {
-            if let Some(t) = &event.text {
-                input.typed.extend(t.chars().filter(|c| !c.is_control()));
-                if crate::debug::env().keys {
-                    eprintln!("typed {t:?}");
-                }
-            }
-        }
-        let Some(raw) = key_of(event) else { return };
-        let k = match event.state {
-            ElementState::Pressed => match self.key_map.get(&raw).copied().unwrap_or(Some(raw)) {
+impl Input {
+    /// A key pressed or let go, as the keyboard names it (before the key
+    /// map). True: Alt+Enter was pressed anew; the backend switches the full
+    /// screen, and the game does not see this Enter.
+    fn key(&mut self, raw: Key, pressed: bool, repeat: bool, key_map: &crate::hash::HashMap<Key, Option<Key>>) -> bool {
+        let k = if pressed {
+            match key_map.get(&raw).copied().unwrap_or(Some(raw)) {
                 Some(k) => {
-                    input.held_as.insert(raw, k);
+                    self.held_as.insert(raw, k);
                     k
                 }
-                None => return,
-            },
-            ElementState::Released => match input.held_as.remove(&raw) {
+                None => return false,
+            }
+        } else {
+            // let go as what it was pressed as, whatever the map says by now
+            match self.held_as.remove(&raw) {
                 Some(k) => k,
-                None => return,
-            },
+                None => return false,
+            }
         };
         if crate::debug::env().keys {
-            eprintln!("key {k:?} {:?} repeat {} alt {}", event.state, event.repeat, input.alt);
+            eprintln!("key {k:?} {} repeat {repeat} alt {}", if pressed { "Pressed" } else { "Released" }, self.alt);
         }
         // Alt+Enter: full screen or back (the game does not see this Enter)
-        if (k == Key::Enter || k == Key::NumPadEnter) && input.alt {
-            if event.state == ElementState::Pressed && !event.repeat {
-                if let Some(w) = &self.window {
-                    let full = w.fullscreen().is_some();
-                    w.set_fullscreen((!full).then_some(winit::window::Fullscreen::Borderless(None)));
-                }
-            }
-            return;
+        if (k == Key::Enter || k == Key::NumPadEnter) && self.alt {
+            return pressed && !repeat;
         }
-        match event.state {
-            ElementState::Pressed => {
-                input.down.insert(k);
-                input.pressed.push((k, event.repeat));
-            }
-            ElementState::Released => {
-                input.down.remove(&k);
-            }
+        if pressed {
+            self.down.insert(k);
+            self.pressed.push((k, repeat));
+        } else {
+            self.down.remove(&k);
+        }
+        false
+    }
+
+    /// What the keys typed (with the keyboard's layout, shift, dead keys
+    /// ...), without control characters.
+    fn text(&mut self, typed: &str) {
+        self.typed.extend(typed.chars().filter(|c| !c.is_control()));
+        if crate::debug::env().keys {
+            eprintln!("typed {typed:?}");
         }
     }
 
-    /// A mouse button pressed or let go. A click that brings the window
-    /// back to the front is not passed on.
-    fn mouse_button(&mut self, state: ElementState, button: winit::event::MouseButton) {
-        let input = &mut self.input;
-        let i = match button {
-            winit::event::MouseButton::Left => 0,
-            winit::event::MouseButton::Right => 1,
-            winit::event::MouseButton::Middle => 2,
-            _ => return,
-        };
-        let pressed = state == ElementState::Pressed;
+    /// A mouse button (0 left, 1 right, 2 middle) pressed or let go. A
+    /// click that brings the window back to the front is not passed on.
+    fn mouse_button(&mut self, i: usize, pressed: bool) {
         if pressed {
-            let fresh = input.focused_at.take().is_some_and(|t| t.elapsed() < Duration::from_millis(300));
-            input.swallowed[i] = fresh;
+            let fresh = self.focused_at.take().is_some_and(|t| t.elapsed() < Duration::from_millis(300));
+            self.swallowed[i] = fresh;
             if fresh {
                 return;
             }
-        } else if std::mem::take(&mut input.swallowed[i]) {
+        } else if std::mem::take(&mut self.swallowed[i]) {
             return;
         }
-        input.buttons[i] = pressed;
+        self.buttons[i] = pressed;
         if i < 2 {
             if pressed {
-                input.edges[i].pressed = true;
+                self.edges[i].pressed = true;
             } else {
-                input.edges[i].released = true;
+                self.edges[i].released = true;
             }
         }
     }
-}
 
-impl ApplicationHandler for App {
-    fn resumed(&mut self, el: &ActiveEventLoop) {
-        if self.window.is_some() {
-            return;
-        }
-        let attrs = winit::window::Window::default_attributes()
-            .with_title(self.title.clone())
-            .with_inner_size(self.size)
-            .with_min_inner_size(PhysicalSize::new(320, 200))
-            .with_resizable(true)
-            // PAGAN_FULLSCREEN=1: in the full screen from the start (for tests)
-            .with_fullscreen(crate::debug::env().fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));
-        match el.create_window(attrs) {
-            Ok(w) => {
-                let w = Arc::new(w);
-                match Gpu::new(w.clone()) {
-                    Ok(g) => self.gpu = Some(g),
-                    Err(e) => self.error = Some(e),
-                }
-                self.window = Some(w);
-            }
-            Err(e) => self.error = Some(format!("no window: {e}")),
-        }
-    }
-
-    fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let input = &mut self.input;
-        match event {
-            WindowEvent::CloseRequested => input.closed = true,
-            WindowEvent::Resized(size) => {
-                if let Some(g) = &mut self.gpu {
-                    g.resize(size);
-                }
-            }
-            WindowEvent::Focused(false) => {
-                // keys let go while another window had the keyboard never come back up
-                input.down.clear();
-                input.buttons = [false; 3];
-                input.focused_at = None;
-            }
-            WindowEvent::Focused(true) => input.focused_at = Some(std::time::Instant::now()),
-            WindowEvent::KeyboardInput { event, .. } => self.keyboard_input(&event),
-            WindowEvent::ModifiersChanged(m) => input.alt = m.state().alt_key(),
-            WindowEvent::CursorMoved { position, .. } => {
-                input.mouse = (position.x, position.y);
-                input.inside = true;
-            }
-            WindowEvent::CursorEntered { .. } => input.inside = true,
-            WindowEvent::CursorLeft { .. } => input.inside = false,
-            WindowEvent::MouseInput { state, button, .. } => self.mouse_button(state, button),
-            WindowEvent::MouseWheel { delta, .. } => {
-                let (x, y) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (x, y),
-                    MouseScrollDelta::PixelDelta(p) => (p.x as f32 / 40.0, p.y as f32 / 40.0),
-                };
-                input.wheel.0 += x;
-                input.wheel.1 += y;
-            }
-            _ => {}
+    /// The window got the keyboard (true) or lost it.
+    fn focus(&mut self, gained: bool) {
+        if gained {
+            self.focused_at = Some(std::time::Instant::now());
+        } else {
+            // keys let go while another window had the keyboard never come back up
+            self.down.clear();
+            self.buttons = [false; 3];
+            self.focused_at = None;
         }
     }
 }
@@ -505,8 +359,10 @@ fn desktop_refresh() -> bool {
 
 /// The game's window.
 pub struct Window {
-    events: EventLoop<()>,
-    app: App,
+    /// The pictures' way to the screen. It stays before `backend`: its
+    /// surface must be gone before the window it draws to.
+    gpu: Gpu,
+    backend: backend::Backend,
     /// The size the game opened the window with; the mouse is reported in
     /// these units (as minifb did), whatever size the window has on screen.
     logical: (usize, usize),
@@ -541,40 +397,16 @@ impl Window {
     /// asks for (`--window`, for videos): the game still counts in `w` x `h`
     /// then, and the picture is fitted into the window as after resizing it.
     pub fn new(title: &str, w: usize, h: usize, screen: Option<(u32, u32)>) -> Result<Window, String> {
-        let events = EventLoop::new().map_err(|e| format!("no event loop: {e}"))?;
-        let (sw, sh) = screen.unwrap_or((w as u32, h as u32));
-        let app = App {
-            title: title.to_string(),
-            size: PhysicalSize::new(sw, sh),
-            window: None,
-            gpu: None,
-            error: None,
-            input: Input::default(),
-            key_map: Default::default(),
-        };
+        // PAGAN_FULLSCREEN=1: in the full screen from the start (for tests)
+        let backend = backend::Backend::new(title, screen.unwrap_or((w as u32, h as u32)), crate::debug::env().fullscreen)?;
+        let gpu = Gpu::new(&backend)?;
         let desktop_pace = cfg!(windows) && !crate::debug::env().no_dwm;
-        let mut win = Window { events, app, logical: (w, h), pressed: Vec::new(), typed: String::new(), wheel: None, desktop_pace, fill: false,
-            pads: gilrs::Gilrs::new().ok(), pad_events: Vec::new(), pad_next: Vec::new(), stick: (0.0, 0.0), right_stick: (0.0, 0.0), pad_held: Default::default(), virtual_down: Default::default(), virtual_buttons: [false; 2] };
-        // the window is made when the event loop starts
-        for _ in 0..100 {
-            win.pump();
-            if win.app.window.is_some() || win.app.error.is_some() {
-                break;
-            }
-        }
-        if let Some(e) = win.app.error.take() {
-            return Err(e);
-        }
-        if win.app.window.is_none() {
-            return Err("the window did not open".into());
-        }
-        Ok(win)
+        Ok(Window { gpu, backend, logical: (w, h), pressed: Vec::new(), typed: String::new(), wheel: None, desktop_pace, fill: false,
+            pads: gilrs::Gilrs::new().ok(), pad_events: Vec::new(), pad_next: Vec::new(), stick: (0.0, 0.0), right_stick: (0.0, 0.0), pad_held: Default::default(), virtual_down: Default::default(), virtual_buttons: [false; 2] })
     }
 
     fn pump(&mut self) {
-        if let PumpStatus::Exit(_) = self.events.pump_app_events(Some(Duration::ZERO), &mut self.app) {
-            self.app.input.closed = true;
-        }
+        self.backend.pump();
         if let Some(pads) = &mut self.pads {
             while let Some(ev) = pads.next_event() {
                 match ev.event {
@@ -629,18 +461,18 @@ impl Window {
 
     /// Moves the pointer by window pixels (the pad's right stick).
     pub fn move_pointer(&mut self, dx: f64, dy: f64) {
-        let Some(win) = &self.app.window else { return };
-        let size = win.inner_size();
-        let m = &mut self.app.input.mouse;
-        m.0 = (m.0 + dx).clamp(0.0, size.width.saturating_sub(1) as f64);
-        m.1 = (m.1 + dy).clamp(0.0, size.height.saturating_sub(1) as f64);
-        self.app.input.inside = true;
-        let _ = win.set_cursor_position(winit::dpi::PhysicalPosition::new(m.0, m.1));
+        let size = self.backend.pixel_size();
+        let input = &mut self.backend.input;
+        let x = (input.mouse.0 + dx).clamp(0.0, (size.0 - 1) as f64);
+        let y = (input.mouse.1 + dy).clamp(0.0, (size.1 - 1) as f64);
+        input.mouse = (x, y);
+        input.inside = true;
+        self.backend.warp_pointer(x, y);
     }
 
     /// The window's size in its pixels.
     pub fn pixel_size(&self) -> (u32, u32) {
-        self.app.window.as_ref().map_or((1, 1), |w| (w.inner_size().width.max(1), w.inner_size().height.max(1)))
+        self.backend.pixel_size()
     }
 
     /// Is this key held by a button of the pad (not by the keyboard)?
@@ -652,7 +484,7 @@ impl Window {
     /// Keys that come anew count as pressed in this picture, the ones
     /// missing are let go. `repeat`: held keys pressed again (by repeating).
     pub fn set_virtual(&mut self, keys: &crate::hash::HashSet<Key>, buttons: [bool; 2], repeat: &[Key]) {
-        let input = &mut self.app.input;
+        let input = &mut self.backend.input;
         for &k in keys {
             if self.virtual_down.insert(k) {
                 input.down.insert(k);
@@ -687,33 +519,30 @@ impl Window {
 
     /// Keys that do what other keys do (the player's own bindings).
     pub fn set_key_map(&mut self, map: crate::hash::HashMap<Key, Option<Key>>) {
-        self.app.key_map = map;
+        self.backend.key_map = map;
     }
 
 
     pub fn is_open(&self) -> bool {
-        !self.app.input.closed
+        !self.backend.input.closed
     }
 
     /// The screen's refresh time, if the system tells it.
     pub fn refresh_period(&self) -> Option<Duration> {
-        let mhz = self.app.window.as_ref()?.current_monitor()?.refresh_rate_millihertz()?;
+        let mhz = self.backend.refresh_millihertz()?;
         (mhz > 0).then(|| Duration::from_secs_f64(1000.0 / mhz as f64))
     }
 
     pub fn set_title(&mut self, title: &str) {
-        if let Some(w) = &self.app.window {
-            w.set_title(title);
-        }
+        self.backend.set_title(title);
     }
 
     /// Where the picture goes in the window: x, y, width, height in screen
     /// pixels, as large as fits with the proportions of the size the window
     /// was opened with.
     fn fit(&self) -> (u32, u32, u32, u32) {
-        let Some(win) = &self.app.window else { return (0, 0, self.logical.0 as u32, self.logical.1 as u32) };
-        let size = win.inner_size();
-        let (sw, sh) = (size.width.max(1) as u64, size.height.max(1) as u64);
+        let size = self.backend.pixel_size();
+        let (sw, sh) = (size.0 as u64, size.1 as u64);
         if self.fill {
             return (0, 0, sw as u32, sh as u32);
         }
@@ -735,14 +564,11 @@ impl Window {
     /// with: that size, or, filling the window, as high as that and as
     /// wide as the window's proportions make it.
     pub fn logical_size(&self) -> (usize, usize) {
-        match (&self.app.window, self.fill) {
-            (Some(win), true) => {
-                let size = win.inner_size();
-                let (sw, sh) = (size.width.max(1) as usize, size.height.max(1) as usize);
-                ((self.logical.1 * sw / sh).max(1), self.logical.1)
-            }
-            _ => self.logical,
+        if !self.fill {
+            return self.logical;
         }
+        let (sw, sh) = self.backend.pixel_size();
+        ((self.logical.1 * sw as usize / sh as usize).max(1), self.logical.1)
     }
 
     pub fn display_size(&self) -> (usize, usize) {
@@ -751,13 +577,11 @@ impl Window {
     }
 
     pub fn set_cursor_visibility(&mut self, visible: bool) {
-        if let Some(w) = &self.app.window {
-            w.set_cursor_visible(visible);
-        }
+        self.backend.set_cursor_visible(visible);
     }
 
     pub fn is_key_down(&self, key: Key) -> bool {
-        self.app.input.down.contains(&key)
+        self.backend.input.down.contains(&key)
     }
 
     /// Pressed since the picture before (with `Yes` also by holding it).
@@ -775,7 +599,7 @@ impl Window {
     }
 
     pub fn get_mouse_down(&self, button: MouseButton) -> bool {
-        self.app.input.buttons[match button {
+        self.backend.input.buttons[match button {
             MouseButton::Left => 0,
             MouseButton::Right => 1,
             MouseButton::Middle => 2,
@@ -784,16 +608,15 @@ impl Window {
 
     /// The mouse position in the units the window was opened with.
     pub fn get_mouse_pos(&self, mode: MouseMode) -> Option<(f32, f32)> {
-        self.app.window.as_ref()?;
         let (fx, fy, fw, fh) = self.fit();
         let (lw, lh) = self.logical_size();
         let (lw, lh) = (lw as f64, lh as f64);
-        let x = (self.app.input.mouse.0 - fx as f64) * lw / fw.max(1) as f64;
-        let y = (self.app.input.mouse.1 - fy as f64) * lh / fh.max(1) as f64;
+        let x = (self.backend.input.mouse.0 - fx as f64) * lw / fw.max(1) as f64;
+        let y = (self.backend.input.mouse.1 - fy as f64) * lh / fh.max(1) as f64;
         match mode {
             MouseMode::Clamp => Some((x.clamp(0.0, lw - 1.0) as f32, y.clamp(0.0, lh - 1.0) as f32)),
             MouseMode::Discard => {
-                (self.app.input.inside && x >= 0.0 && y >= 0.0 && x < lw && y < lh).then_some((x as f32, y as f32))
+                (self.backend.input.inside && x >= 0.0 && y >= 0.0 && x < lw && y < lh).then_some((x as f32, y as f32))
             }
         }
     }
@@ -807,7 +630,7 @@ impl Window {
     /// last call. A short click (a touchpad tap) can go down and up between
     /// two pictures; it is still seen here.
     pub fn take_clicks(&mut self) -> (Edges, Edges) {
-        let e = std::mem::take(&mut self.app.input.edges);
+        let e = std::mem::take(&mut self.backend.input.edges);
         (e[0], e[1])
     }
 
@@ -815,13 +638,12 @@ impl Window {
     /// (so that the pace stays that of the screen).
     pub fn update(&mut self) {
         let rect = self.fit();
-        if let Some(g) = &mut self.app.gpu {
-            if self.desktop_pace {
-                desktop_refresh();
-            }
-            if !g.draw(rect) {
-                std::thread::sleep(Duration::from_millis(8));
-            }
+        if self.desktop_pace {
+            desktop_refresh();
+        }
+        self.gpu.resize(self.backend.pixel_size());
+        if !self.gpu.draw(rect) {
+            std::thread::sleep(Duration::from_millis(8));
         }
         self.events_in();
     }
@@ -832,24 +654,23 @@ impl Window {
         if pixels.len() < w * h {
             return Err(format!("picture of {w}x{h} with only {} pixels", pixels.len()));
         }
-        let minimized = self.app.window.as_ref().is_none_or(|w| w.is_minimized().unwrap_or(false));
         let rect = self.fit();
-        match &mut self.app.gpu {
-            Some(g) if !minimized => {
-                for i in 0..times.max(1) {
-                    if self.desktop_pace {
-                        desktop_refresh();
-                    }
-                    if i == 0 {
-                        g.upload(pixels, w as u32, h as u32, look);
-                    }
-                    if !g.draw(rect) {
-                        std::thread::sleep(Duration::from_millis(8));
-                    }
+        if self.backend.is_minimized() {
+            // nothing to show it in: keep the pace anyway
+            std::thread::sleep(Duration::from_millis(16));
+        } else {
+            self.gpu.resize(self.backend.pixel_size());
+            for i in 0..times.max(1) {
+                if self.desktop_pace {
+                    desktop_refresh();
+                }
+                if i == 0 {
+                    self.gpu.upload(pixels, w as u32, h as u32, look);
+                }
+                if !self.gpu.draw(rect) {
+                    std::thread::sleep(Duration::from_millis(8));
                 }
             }
-            // nothing to show it in: keep the pace anyway
-            _ => std::thread::sleep(Duration::from_millis(16)),
         }
         self.events_in();
         Ok(())
@@ -857,10 +678,74 @@ impl Window {
 
     fn events_in(&mut self) {
         self.pump();
-        self.pressed = std::mem::take(&mut self.app.input.pressed);
-        self.typed = std::mem::take(&mut self.app.input.typed);
+        self.pressed = std::mem::take(&mut self.backend.input.pressed);
+        self.typed = std::mem::take(&mut self.backend.input.typed);
         self.pad_events = std::mem::take(&mut self.pad_next);
-        let wheel = std::mem::take(&mut self.app.input.wheel);
+        let wheel = std::mem::take(&mut self.backend.input.wheel);
         self.wheel = (wheel != (0.0, 0.0)).then_some(wheel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    type Map = crate::hash::HashMap<Key, Option<Key>>;
+
+    #[test]
+    fn alt_enter_is_not_a_key_for_the_game() {
+        let (mut input, map) = (Input::default(), Map::default());
+        input.alt = true;
+        assert!(input.key(Key::Enter, true, false, &map));
+        assert!(!input.key(Key::Enter, true, true, &map)); // held: no second switch
+        assert!(!input.key(Key::Enter, false, false, &map));
+        assert!(input.down.is_empty() && input.pressed.is_empty());
+    }
+
+    #[test]
+    fn a_mapped_key_is_let_go_as_what_it_was_pressed_as() {
+        let mut input = Input::default();
+        let mut map = Map::default();
+        map.insert(Key::A, Some(Key::B));
+        assert!(!input.key(Key::A, true, false, &map));
+        assert!(input.down.contains(&Key::B) && input.pressed == vec![(Key::B, false)]);
+        map.clear(); // the bindings change while the key is held
+        input.key(Key::A, false, false, &map);
+        assert!(input.down.is_empty());
+    }
+
+    #[test]
+    fn a_key_mapped_to_nothing_does_nothing() {
+        let mut input = Input::default();
+        let mut map = Map::default();
+        map.insert(Key::A, None);
+        input.key(Key::A, true, false, &map);
+        assert!(input.down.is_empty() && input.pressed.is_empty());
+    }
+
+    #[test]
+    fn typed_text_has_no_control_characters() {
+        let mut input = Input::default();
+        input.text("a\u{8}\u{e4}\r");
+        assert_eq!(input.typed, "a\u{e4}");
+    }
+
+    #[test]
+    fn the_click_that_brings_the_window_back_is_not_for_the_game() {
+        let mut input = Input::default();
+        input.focus(true);
+        input.mouse_button(0, true);
+        input.mouse_button(0, false);
+        assert!(!input.buttons[0] && !input.edges[0].pressed && !input.edges[0].released);
+        input.mouse_button(0, true); // the next one counts
+        assert!(input.buttons[0] && input.edges[0].pressed);
+    }
+
+    #[test]
+    fn losing_focus_lets_go_of_everything() {
+        let (mut input, map) = (Input::default(), Map::default());
+        input.key(Key::W, true, false, &map);
+        input.mouse_button(1, true);
+        input.focus(false);
+        assert!(input.down.is_empty() && input.buttons == [false; 3]);
     }
 }
